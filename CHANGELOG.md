@@ -7,6 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Task Management Implementation
+
+#### Domain Layer (Clean Architecture)
+- Created `lib/domain/entities/task.dart` - Immutable TaskEntity class
+  - 28 fields including scheduling, time tracking, classification, relationships
+  - Helper methods: `isOverdue`, `isDeleted`, `needsSync`, `hasConflict`
+  - Complete JSON serialization (`toJson()`, `fromJson()`)
+  - Immutable with `copyWith()` for updates
+  - Proper equality and hashCode implementation
+- Created `lib/domain/repositories/task_repository.dart` - Repository interface
+  - 18 method signatures for complete task management
+  - Basic CRUD: getAllTasks, getTaskById, createTask, updateTask, deleteTask
+  - Reactive streams: watchTasks, watchTask
+  - Filtered queries: getTasksByStatus, getOverdueTasks, getTodayTasks, getWeekTasks
+  - Category/person/sermon/event filtering
+  - Special operations: completeTask, getPendingTasks
+  - Clean architecture: domain independent of data sources
+
+#### Data Layer Implementation
+- Implemented `lib/data/repositories/task_repository_impl.dart` - Offline-first repository
+  - Complete TaskRepository implementation using Drift
+  - Conversion helpers: `_toDomain()`, `_toData()`, `_toCompanion()`
+  - DateTime ↔ milliseconds conversion for SQLite compatibility
+  - Client-side UUID generation with uuid package
+  - Optimistic updates with immediate local saves
+  - Sync metadata management (syncStatus, localUpdatedAt, version)
+  - Version increment for optimistic locking
+  - Soft delete implementation
+  - Stream-based reactive queries
+  - TODO markers for future sync queue integration
+
+#### Presentation Layer - Providers
+- Created `lib/presentation/tasks/providers/task_providers.dart`
+  - 15 Riverpod providers for comprehensive task access
+  - `databaseProvider` - AppDatabase singleton
+  - `taskRepositoryProvider` - Main repository provider
+  - `tasksProvider` - StreamProvider for all tasks
+  - `taskProvider` - Family provider for single task by ID
+  - `tasksByStatusProvider` - Filter by status (not_started/in_progress/done)
+  - `overdueTasksProvider` - Automatically filter overdue tasks
+  - `todayTasksProvider` - Tasks due today
+  - `weekTasksProvider` - Tasks due within 7 days
+  - `tasksByCategoryProvider` - Filter by category
+  - `focusTasksProvider` - Tasks requiring dedicated focus
+  - `tasksByPersonProvider` - Tasks linked to person
+  - `tasksBySermonProvider` - Tasks linked to sermon
+  - `pendingTasksProvider` - Tasks needing sync
+  - `taskStatsProvider` - Dashboard statistics (counts by status, overdue, today)
+  - All providers use reactive streams for automatic UI updates
+
+#### Presentation Layer - UI Components
+- Created `lib/presentation/tasks/tasks_screen.dart` - Main task management interface
+  - Filter tabs: All, Today, This Week, By Category, By Person
+  - Task grouping by due date: OVERDUE, TODAY, THIS WEEK, NO DUE DATE, COMPLETED
+  - Collapsible/expandable groups with AnimatedCrossFade
+  - AsyncValue.when() for loading/error/data states
+  - Empty state handling with custom messages per filter
+  - Floating action button for quick task creation
+  - Material Design 3 styling with Shepherd color scheme
+  - Full accessibility with Semantics widgets
+  - Background color: #F9FAFB
+- Created `lib/presentation/tasks/widgets/task_card.dart` - Reusable task card
+  - Task title with strikethrough when completed
+  - Priority-colored left border (urgent=red, high=orange, medium=transparent, low=gray)
+  - Category badge with colors (sermon_prep=blue, pastoral_care=green, admin=orange, personal=purple, worship_planning=teal)
+  - Due date chip with contextual colors (overdue=red, today=orange)
+  - Estimated duration display (formatted as hours/minutes)
+  - Description preview (2 lines max with ellipsis)
+  - Checkbox for completion toggle
+  - Three-dot menu with Edit/Delete options
+  - Delete confirmation dialog
+  - Tap to navigate to detail view
+  - Optimistic updates with error handling
+  - Full accessibility labels
+  - InkWell ripple effect
+  - Card elevation and rounded corners (12px)
+- Created `lib/presentation/tasks/widgets/task_group_section.dart` - Collapsible sections
+  - Group header with title, count, expand/collapse icon
+  - Smooth expand/collapse animation (200ms)
+  - Optional accent color for priority groups
+  - Persists expanded state
+  - Helper functions:
+    - `groupTasksByDueDate()` - Groups into overdue/today/thisWeek/noDueDate/completed
+    - `groupTasksByCategory()` - Groups by category field
+    - `sortTasksByPriority()` - Sorts by priority (urgent>high>medium>low) then due date
+  - Accessible with button semantics
+- Created `lib/presentation/tasks/widgets/empty_task_state.dart` - Empty state widget
+  - Large icon in colored circle background
+  - Customizable message and subtitle
+  - Optional action button
+  - Used for different filter states
+  - Semantically labeled
+- Created `lib/presentation/tasks/widgets/error_task_state.dart` - Error state widget
+  - Error icon with red background
+  - "Oops!" title and error message
+  - Retry button
+  - Clean error handling UX
+
+### Added - Documentation & Workflow
+
+#### Development Workflow
+- Created `end-of-day-workflow.md` - Automated session closure workflow
+  - Complete agent documentation (575 lines)
+  - Responsibilities: Analyze session, update CHANGELOG.md, update session_summary.md, commit to git, push to GitHub
+  - 12-section session summary format specification
+  - Commit message templates for different scenarios
+  - CHANGELOG categorization guidelines (Added/Changed/Fixed/Removed/Security/Performance/Build & Tooling)
+  - Error handling for git operations
+  - Quality standards checklist
+  - Usage examples and invocation triggers
+  - GitHub push mandatory (reports error if remote not configured)
+
 ### Added - Infrastructure & Setup
 
 #### Project Initialization
