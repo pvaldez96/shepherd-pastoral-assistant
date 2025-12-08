@@ -1,0 +1,256 @@
+# Supabase Configuration Template for Shepherd
+# Copy this file to config.toml after running 'supabase init'
+# This file is created automatically, but this serves as a reference
+
+# Project settings
+project_id = "shepherd"
+
+[api]
+# Port to use for the API URL (default: 54321)
+port = 54321
+# Schemas to expose in your API (default: ["public", "storage", "graphql_public"])
+schemas = ["public", "storage", "graphql_public"]
+# Extra schemas to add to the search_path of every request
+extra_search_path = ["public", "extensions"]
+# The maximum number of rows returns from a view, table, or stored procedure
+max_rows = 1000
+
+[db]
+# Port to use for the local database URL (default: 54322)
+port = 54322
+# The database major version (default: 15)
+major_version = 15
+
+[studio]
+# Port to use for Supabase Studio (default: 54323)
+port = 54323
+
+[inbucket]
+# Port to use for the email testing server web interface (default: 54324)
+port = 54324
+smtp_port = 54325
+pop3_port = 54326
+
+[auth]
+# The base URL of your website (used for redirects)
+site_url = "http://localhost:3000"
+
+# A list of *exact* URLs that auth providers are permitted to redirect to post authentication
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+
+# How long tokens are valid for (in seconds)
+jwt_expiry = 3600
+
+# Allow/disallow new user signups to your project
+enable_signup = true
+
+[auth.email]
+# Allow/disallow new user signups via email to your project
+enable_signup = true
+# If enabled, a user will be required to confirm any email change on both the old, and new email addresses
+double_confirm_changes = true
+# If enabled, users need to confirm their email address before signing in
+enable_confirmations = false
+
+# External OAuth providers
+[auth.external.google]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.microsoft]
+enabled = false
+client_id = ""
+secret = ""
+
+# Storage settings
+[storage]
+# The maximum file size allowed (e.g. "5MB", "500KB")
+file_size_limit = "50MB"
+
+# Realtime settings (for live updates)
+[realtime]
+# Enable or disable the realtime server
+enabled = true
+# Bind the realtime server to a specific IP (default: 0.0.0.0)
+ip_version = "IPv4"
+
+# Edge Functions (if needed in future)
+[functions]
+# Map of function name to path
+# Example: { hello = "./functions/hello" }
+
+# Analytics (self-hosted analytics alternative)
+[analytics]
+enabled = false
+port = 54327
+vector_port = 54328
+# Disable backend features that enable analytics
+# WARNING: disabling this will break analytics
+gcp_project_id = ""
+gcp_project_number = ""
+gcp_jwt_path = ""
+```
+
+---
+
+## Configuration Notes for Shepherd
+
+### Database Settings
+
+The default PostgreSQL version (15) is recommended. This ensures compatibility with:
+- UUID generation (uuid-ossp extension)
+- JSONB data type (for notification_preferences)
+- Row Level Security (RLS)
+- Triggers and functions
+
+### Authentication Settings
+
+For Shepherd, recommended settings:
+
+```toml
+[auth]
+site_url = "your-production-domain.com"  # Update for production
+enable_signup = true  # Allow pastors to register
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true  # Require email verification
+double_confirm_changes = true  # Extra security for email changes
+```
+
+### OAuth Providers (Optional)
+
+To enable Google Sign-In:
+
+1. Get credentials from Google Cloud Console
+2. Update config:
+   ```toml
+   [auth.external.google]
+   enabled = true
+   client_id = "your-google-client-id"
+   secret = "your-google-client-secret"
+   ```
+
+To enable Microsoft Sign-In:
+
+1. Get credentials from Azure Portal
+2. Update config:
+   ```toml
+   [auth.external.microsoft]
+   enabled = true
+   client_id = "your-microsoft-client-id"
+   secret = "your-microsoft-client-secret"
+   ```
+
+### Storage Settings
+
+For file uploads (sermon documents, contact attachments):
+
+```toml
+[storage]
+file_size_limit = "50MB"  # Adjust based on needs
+```
+
+Create storage buckets:
+- `sermon-documents` - For sermon prep files
+- `contact-attachments` - For contact-related files
+- `user-avatars` - For profile pictures
+
+### Realtime Settings
+
+Enable for live updates (optional):
+
+```toml
+[realtime]
+enabled = true
+```
+
+Useful for:
+- Live task updates across devices
+- Real-time prayer request updates
+- Collaborative sermon planning
+
+### Port Configuration
+
+Default ports (can be changed if conflicts exist):
+
+- API: 54321
+- Database: 54322
+- Studio: 54323
+- Email Testing: 54324
+- SMTP: 54325
+- POP3: 54326
+
+### Environment-Specific Settings
+
+Development:
+```toml
+[auth]
+site_url = "http://localhost:3000"
+enable_confirmations = false  # Faster development
+```
+
+Production:
+```toml
+[auth]
+site_url = "https://shepherd.yourdomain.com"
+enable_confirmations = true  # Security best practice
+```
+
+### Performance Tuning
+
+For production, consider:
+
+```toml
+[api]
+max_rows = 5000  # Increase for dashboard queries
+
+[db]
+# Connection pooling settings (set in Supabase Dashboard)
+# Max connections: 100
+# Pool mode: Transaction
+```
+
+### Security Best Practices
+
+1. **Never commit config.toml** to version control
+   - Add to `.gitignore`
+   - Use environment variables for secrets
+
+2. **Rotate secrets regularly**
+   - Database passwords
+   - JWT secrets
+   - OAuth credentials
+
+3. **Use strong database passwords**
+   - Minimum 16 characters
+   - Mix of letters, numbers, symbols
+
+4. **Enable email confirmations** in production
+   ```toml
+   [auth.email]
+   enable_confirmations = true
+   ```
+
+### Multi-Environment Setup
+
+Recommended structure:
+
+```
+supabase/
+├── config.toml              # Local development (gitignored)
+├── config.staging.toml      # Staging environment (gitignored)
+├── config.production.toml   # Production environment (gitignored)
+└── config.toml.example      # Template (committed to git)
+```
+
+---
+
+## Applying This Configuration
+
+1. Run `supabase init` to create `config.toml`
+2. Copy settings from this example
+3. Customize for your environment
+4. Add `config.toml` to `.gitignore`
+5. Share this example file with your team

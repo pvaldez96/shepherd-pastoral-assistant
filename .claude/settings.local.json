@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter create:*)",
+      "Bash(/mnt/c/flutter/bin/flutter create:*)",
+      "Bash(flutter --version:*)",
+      "Bash(cmd.exe /c \"flutter create --org com.shepherd --description \"\"Pastoral assistant for solo pastors\"\" shepherd\")",
+      "Bash(cmd.exe /c \"flutter create --org com.shepherd shepherd\")",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(flutter pub get:*)",
+      "Bash(tree:*)",
+      "Bash(curl:*)",
+      "Bash(bash)",
+      "Bash(npm install:*)",
+      "Bash(wget:*)",
+      "Bash(tar:*)",
+      "Bash(sudo mv:*)",
+      "Bash(rm:*)",
+      "Bash(flutter pub run build_runner build:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(dir:*)",
+      "Bash(flutter build:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
