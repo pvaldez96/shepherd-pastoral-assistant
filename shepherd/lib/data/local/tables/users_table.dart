@@ -14,7 +14,7 @@ import 'package:uuid/uuid.dart';
 class Users extends Table {
   /// Primary key - UUID generated on client
   /// Uses TEXT in SQLite to store UUID strings
-  TextColumn get id => text().clientDefault(() => const Uuid().v4())();
+  TextColumn get id => text().clientDefault(() => Uuid().v4())();
 
   /// User's email address - unique identifier for authentication
   /// Must be unique across all users

@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/config/supabase_config.dart';
 import 'core/router/app_router.dart';
+import 'data/local/database.dart';
 
 void main() async {
   // Ensure Flutter is initialized
@@ -13,6 +14,19 @@ void main() async {
 
   // Initialize Supabase
   await SupabaseConfig.initialize();
+
+  // Initialize local database (CRITICAL for web - triggers onCreate migration)
+  // On web, Drift doesn't auto-create tables until first query
+  // This ensures IndexedDB tables are created before app renders
+  try {
+    final db = AppDatabase();
+    await db.ensureInitialized();
+    print('✅ [Main] Database initialized successfully');
+  } catch (e, stackTrace) {
+    print('❌ [Main] Database initialization failed: $e');
+    print('Stack trace: $stackTrace');
+    // Don't crash app - let UI show error state
+  }
 
   // Run the app wrapped in ProviderScope for Riverpod
   runApp(

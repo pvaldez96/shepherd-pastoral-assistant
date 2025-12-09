@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/task.dart';
 import 'providers/task_providers.dart';
-import 'task_form_screen.dart';
 import 'widgets/empty_task_state.dart';
 import 'widgets/error_task_state.dart';
 import 'widgets/task_group_section.dart';
@@ -13,7 +12,6 @@ import 'widgets/task_group_section.dart';
 /// - Tasks grouped by sections: OVERDUE, TODAY, THIS WEEK, NO DUE DATE, COMPLETED
 /// - Each group is collapsible/expandable with smooth animations
 /// - Filter tabs: All, Today, This Week, By Category, By Person
-/// - Floating action button to create new task
 /// - Empty state when no tasks exist
 /// - Loading state with CircularProgressIndicator
 /// - Error state with retry button
@@ -26,9 +24,9 @@ import 'widgets/task_group_section.dart';
 /// - Follows Shepherd design system for colors, typography, spacing
 /// - Card-based layout with 12px border radius
 /// - Proper touch targets (44x44 minimum)
+/// - No FAB (action button handled by MainScaffold)
 ///
 /// Navigation:
-/// - FAB opens quick capture: context.go('/quick-capture')
 /// - Tapping task card opens detail: context.push('/tasks/${task.id}')
 ///
 /// State Management:
@@ -96,15 +94,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                     icon: _getEmptyIcon(),
                     message: _getEmptyMessage(),
                     subtitle: _getEmptySubtitle(),
-                    actionLabel: 'Add Task',
-                    onActionPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const TaskFormScreen(),
-                        ),
-                      );
-                    },
+                    // No action button - handled by MainScaffold
                   );
                 }
 
@@ -115,27 +105,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           ),
         ],
       ),
-
-      // Floating action button to add new task
-      floatingActionButton: Semantics(
-        label: 'Add new task',
-        button: true,
-        hint: 'Opens form to create a new task',
-        child: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const TaskFormScreen(),
-              ),
-            );
-          },
-          backgroundColor: const Color(0xFF2563EB),
-          foregroundColor: Colors.white,
-          elevation: 4,
-          child: const Icon(Icons.add, size: 28),
-        ),
-      ),
+      // No FAB - action button is handled by MainScaffold
     );
   }
 

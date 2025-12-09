@@ -7,6 +7,231 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Settings Module (December 9, 2024)
+
+#### Settings Screen
+- Created `lib/presentation/settings/settings_screen.dart` - Comprehensive settings UI
+  - User Profile section (name, email, church, timezone display)
+  - Personal Schedule section (wrestling time, work time, family time, focus hours)
+  - Contact Thresholds section (elder, member, crisis frequency settings)
+  - Sermon Prep section (weekly target hours)
+  - Workload section (max daily hours, min focus block duration)
+  - Account section with sign out button and confirmation dialog
+  - Auto-save functionality with loading states
+  - Success/error feedback via SnackBars
+
+#### Settings Providers
+- Created `lib/presentation/settings/providers/settings_provider.dart`
+  - StreamProvider for real-time settings updates
+  - SettingsRepository with complete CRUD operations
+  - Methods for contact frequencies, sermon prep, workload, focus hours
+  - Proper error handling and database integration
+
+#### Settings Widgets
+- Created `lib/presentation/settings/widgets/settings_section_card.dart`
+  - Reusable card component for grouping settings
+  - Title, subtitle, icon support
+  - Follows Shepherd design system (12px radius, proper spacing)
+- Created `lib/presentation/settings/widgets/time_range_field.dart`
+  - Custom time range picker widget
+  - Start/end time selection with Material time picker
+  - Validation (end must be after start)
+  - Stores times in "HH:MM" format
+
+### Added - Quick Capture System (December 9, 2024)
+
+#### Quick Capture UI
+- Created `lib/presentation/quick_capture/quick_capture_screen.dart` - Entry point
+- Replaced bottom sheet with dedicated quick capture screen
+- Expandable Action Button (FAB) with three quick actions
+
+#### Quick Capture Forms
+- Created `lib/presentation/quick_capture/forms/quick_task_form.dart`
+  - Full task creation form matching TaskFormScreen
+  - Fields: Title, Description, Due Date, Due Time, Priority (4 levels), Category, Estimated Duration
+  - Duration selector with quick chips (15m, 30m, 1h, 2h) + custom
+  - Auto-save to database via taskRepositoryProvider
+  - Form validation with error messages
+- Created `lib/presentation/quick_capture/forms/quick_event_form.dart`
+  - Comprehensive event creation form
+  - Fields: Title, Description, Location, Start/End DateTime, Event Type
+  - Advanced options: Energy Drain, Is Moveable, Is Recurring, Travel Time
+  - Preparation settings: Requires Prep, Buffer Hours
+  - Auto-save to database via calendarEventRepositoryProvider
+- Created `lib/presentation/quick_capture/forms/quick_note_form.dart`
+  - Quick note capture with title and content
+
+### Added - Dashboard Module (December 9, 2024)
+
+#### Dashboard Data Layer
+- Created `lib/presentation/dashboard/models/dashboard_data.dart`
+  - DashboardData class with today's events, tasks, overdue tasks, available blocks
+  - Helper methods: `totalAvailableMinutes`, `highPriorityTasks`
+- Created `lib/presentation/dashboard/models/time_block.dart`
+  - TimeBlock class for available time slots
+  - Properties: startTime, endTime, durationMinutes
+  - `isUsable` check (minimum 15 minutes)
+  - Formatted duration string
+
+#### Dashboard Providers
+- Created `lib/presentation/dashboard/providers/dashboard_provider.dart`
+  - `dashboardDataProvider` - Aggregates events and tasks for today
+  - `availableBlocksProvider` - Time gaps between events
+  - `dashboardStatsProvider` - Quick stats (event/task/overdue counts)
+  - DashboardStats class with `formattedAvailableTime`
+  - Time block calculation algorithm (8 AM - 6 PM work day)
+
+#### Dashboard Widgets
+- Created `lib/presentation/dashboard/widgets/dashboard_stat_card.dart`
+- Created `lib/presentation/dashboard/widgets/event_list_card.dart`
+- Created `lib/presentation/dashboard/widgets/task_list_card.dart`
+- Created `lib/presentation/dashboard/widgets/time_block_card.dart`
+- All widgets follow Material Design 3 and Shepherd color scheme
+
+### Added - Calendar Events Module (December 9, 2024)
+
+#### Domain Layer
+- Created `lib/domain/entities/calendar_event.dart` - Immutable CalendarEventEntity
+  - 27 fields including scheduling, travel, energy, preparation
+  - Helper methods: `durationMinutes`, `isHappeningNow`, `isPast`, `isToday`
+  - `conflictsWith()` method for overlap detection
+  - JSON serialization support
+- Created `lib/domain/repositories/calendar_event_repository.dart` - Repository interface
+  - 15+ method signatures for complete event management
+  - Reactive streams with `watchEvents`, `watchEventsForDay`
+
+#### Data Layer
+- Created `lib/data/local/tables/calendar_events_table.dart` - Drift table
+  - Complete schema mirroring Supabase
+  - Sync metadata fields
+- Created `lib/data/local/daos/calendar_events_dao.dart` - 40+ methods
+  - CRUD operations with soft delete
+  - Date range queries, today/week/month filters
+  - Event type and person filtering
+  - Sync status management
+- Created `lib/data/repositories/calendar_event_repository_impl.dart`
+  - Offline-first implementation
+  - Domain-to-data layer conversion
+
+#### Presentation Layer
+- Updated `lib/presentation/calendar/calendar_screen.dart`
+  - Month view with calendar grid
+  - Day selection and event listing
+  - FAB for event creation
+  - Event type color coding
+- Created `lib/presentation/calendar/event_form_screen.dart`
+  - Complete event creation/editing form
+  - All fields from CalendarEventEntity
+  - Date/time pickers, dropdowns, toggles
+  - Travel time and preparation settings
+- Created `lib/presentation/calendar/providers/calendar_event_providers.dart`
+  - `calendarEventsProvider` - All events stream
+  - `todayEventsProvider` - Today's events
+  - `selectedDayEventsProvider` - Events for selected date
+  - `calendarEventRepositoryProvider`
+- Created `lib/presentation/calendar/widgets/`
+  - `calendar_day_cell.dart` - Day cell with event dots
+  - `calendar_event_card.dart` - Event display card
+  - `calendar_header.dart` - Month navigation header
+
+#### Supabase Migration
+- Created `supabase/migrations/0003_calendar_events.sql`
+  - Calendar events table with RLS policies
+  - Performance indexes
+  - Event type constraints
+- Created `supabase/migrations/0003_calendar_events_down.sql`
+
+### Added - People Module (December 9, 2024)
+
+#### Domain Layer
+- Created `lib/domain/entities/person.dart` - PersonEntity
+  - Contact info, membership status, pastoral care fields
+  - Household linking, lifecycle dates
+  - Sync metadata
+- Created `lib/domain/entities/household.dart` - HouseholdEntity
+- Created `lib/domain/entities/contact_log.dart` - ContactLogEntity
+- Created `lib/domain/entities/person_milestone.dart` - PersonMilestoneEntity
+- Created `lib/domain/repositories/person_repository.dart` - Repository interface
+
+#### Data Layer
+- Created `lib/data/local/tables/people_table.dart`
+- Created `lib/data/local/tables/households_table.dart`
+- Created `lib/data/local/tables/contact_log_table.dart`
+- Created `lib/data/local/tables/people_milestones_table.dart`
+- Created `lib/data/local/daos/people_dao.dart` - 35+ methods
+- Created `lib/data/local/daos/households_dao.dart`
+- Created `lib/data/local/daos/contact_log_dao.dart`
+- Created `lib/data/local/daos/people_milestones_dao.dart`
+- Created `lib/data/repositories/person_repository_impl.dart`
+
+#### Presentation Layer
+- Updated `lib/presentation/people/people_screen.dart`
+  - People list with search functionality
+  - Filter by membership status
+  - FAB for adding new person
+- Created `lib/presentation/people/person_detail_screen.dart`
+  - Full person details view
+  - Contact history
+  - Edit and delete actions
+- Created `lib/presentation/people/person_form_screen.dart`
+  - Complete person creation/editing form
+  - All fields from PersonEntity
+- Created `lib/presentation/people/providers/`
+  - Person providers with streams
+  - Search and filter capabilities
+- Created `lib/presentation/people/widgets/`
+  - `person_card.dart`
+  - `person_avatar.dart`
+  - `contact_log_card.dart`
+
+#### Supabase Migration
+- Created `supabase/migrations/0004_people.sql`
+  - People, households, contact_log, people_milestones tables
+  - RLS policies for all tables
+  - Performance indexes
+
+### Added - Shared UI Components (December 9, 2024)
+
+- Created `lib/presentation/shared/widgets/expandable_action_button.dart`
+  - Animated FAB with expandable menu
+  - Three quick action options
+  - Smooth animations
+
+### Added - Database Enhancements
+
+#### Cross-Platform Support
+- Created `lib/data/local/database_connection_native.dart` - Mobile/Desktop
+- Created `lib/data/local/database_connection_web.dart` - Web with IndexedDB
+- Created `lib/data/local/database_connection_stub.dart` - Fallback
+- Added conditional imports for platform detection
+- Added `sqlite3.wasm` and `drift_worker.dart.js` for web support
+
+#### Database Schema Updates
+- Updated `lib/data/local/database.dart`
+  - Added CalendarEvents, People, Households, ContactLog, PeopleMilestones tables
+  - Added all new DAOs
+  - Incremented schema version
+- Regenerated `lib/data/local/database.g.dart` (7800+ lines)
+
+### Changed
+
+#### Navigation System
+- Updated `lib/presentation/main/main_scaffold.dart`
+  - Refactored bottom navigation to daily/weekly/monthly views
+  - Replaced quick capture bottom sheet with full screen
+  - Added proper drawer navigation to all modules
+  - Integrated Settings navigation
+- Deleted `lib/presentation/main/widgets/quick_capture_bottom_sheet.dart` (replaced)
+
+#### Task UI Improvements
+- Updated `lib/presentation/tasks/widgets/task_card.dart`
+  - Enhanced priority color coding
+  - Better category badge styling
+  - Improved touch targets
+- Updated `lib/presentation/tasks/widgets/task_group_section.dart`
+  - Smoother animations
+  - Better visual hierarchy
+
 ### Added - Task Management Implementation
 
 #### Domain Layer (Clean Architecture)

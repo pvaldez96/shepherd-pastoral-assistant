@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'models/dashboard_data.dart';
+import 'providers/dashboard_provider.dart';
+import 'widgets/event_card.dart';
+import 'widgets/task_summary_card.dart';
 
 /// Dashboard screen with multiple view modes
 ///
@@ -7,21 +12,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Supports three view modes: Daily, Weekly, and Monthly.
 ///
 /// Features:
-/// - View parameter from route (daily|weekly|monthly)
-/// - Different content based on view mode
-/// - Welcome message with user info
-/// - Quick actions section
-/// - Placeholder for future dashboard widgets
+/// - Daily view: Today's schedule with events and tasks
+/// - Available time summary
+/// - Overdue tasks section
+/// - Tomorrow preview
+/// - Proper loading, error, and empty states
 ///
 /// Note: AppBar is provided by MainScaffold, not this screen
-///
-/// Future features:
-/// - Daily view: Today's tasks and events
-/// - Weekly view: Week overview with tasks and events
-/// - Monthly view: Month calendar with key dates
-/// - Quick access to modules
-/// - Upcoming deadlines
-/// - Recent activities
 class DashboardScreen extends ConsumerWidget {
   final String view;
 
@@ -38,14 +35,14 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // View-specific content
-          _buildViewContent(context),
+          _buildViewContent(context, ref),
         ],
       ),
     );
   }
 
   /// Build content based on the current view
-  Widget _buildViewContent(BuildContext context) {
+  Widget _buildViewContent(BuildContext context, WidgetRef ref) {
     switch (view) {
       case 'weekly':
         return _buildWeeklyView(context);
@@ -53,59 +50,363 @@ class DashboardScreen extends ConsumerWidget {
         return _buildMonthlyView(context);
       case 'daily':
       default:
-        return _buildDailyView(context);
+        return _buildDailyView(context, ref);
     }
   }
 
   /// Build Daily View content
-  Widget _buildDailyView(BuildContext context) {
+  Widget _buildDailyView(BuildContext context, WidgetRef ref) {
+    final dashboardAsync = ref.watch(dashboardDataProvider);
+
+    return dashboardAsync.when(
+      loading: () => _buildLoadingState(),
+      error: (error, stack) => _buildErrorState(context, error, ref),
+      data: (data) => _buildDailyContent(context, ref, data),
+    );
+  }
+
+  /// Build the main daily content
+  Widget _buildDailyContent(BuildContext context, WidgetRef ref, DashboardData data) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Welcome card
-        _buildWelcomeCard(
-          context,
-          title: 'Today',
-          subtitle: _getFormattedDate(),
-          icon: Icons.today,
-        ),
+        // Header with date
+        _buildDateHeader(context),
         const SizedBox(height: 16),
 
-        // Today's tasks section (placeholder)
-        _buildSectionCard(
-          context,
-          title: 'Today\'s Tasks',
-          icon: Icons.check_box_outlined,
-          iconColor: const Color(0xFF2563EB),
-          content: _buildPlaceholderContent(
-            context,
-            'No tasks for today',
-            'Your tasks for today will appear here',
-          ),
-        ),
+        // Available time summary
+        _buildAvailableTimeSummary(context, data),
         const SizedBox(height: 16),
 
-        // Today's events section (placeholder)
-        _buildSectionCard(
-          context,
-          title: 'Today\'s Events',
-          icon: Icons.event,
-          iconColor: const Color(0xFF10B981),
-          content: _buildPlaceholderContent(
-            context,
-            'No events today',
-            'Your scheduled events will appear here',
-          ),
-        ),
+        // Overdue tasks (if any)
+        if (data.hasOverdueTasks) ...[
+          _buildOverdueSection(context, ref, data),
+          const SizedBox(height: 16),
+        ],
+
+        // Fixed Commitments section
+        _buildFixedCommitmentsSection(context, data),
         const SizedBox(height: 16),
 
-        // Quick actions
-        _buildQuickActionsCard(context),
+        // Today's tasks section
+        _buildTodayTasksSection(context, ref, data),
+        const SizedBox(height: 16),
+
+        // Tomorrow preview
+        _buildTomorrowPreview(context, ref),
       ],
     );
   }
 
-  /// Build Weekly View content
+  /// Build date header
+  Widget _buildDateHeader(BuildContext context) {
+    final now = DateTime.now();
+    final formattedDate = DateFormat('EEEE, MMM d').format(now);
+
+    return Semantics(
+      label: 'Today is $formattedDate',
+      child: Text(
+        'Today - $formattedDate',
+        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF2563EB),
+            ),
+      ),
+    );
+  }
+
+  /// Build available time summary card
+  Widget _buildAvailableTimeSummary(BuildContext context, DashboardData data) {
+    final availableTime = data.formattedAvailableTime;
+    final hasTime = data.totalAvailableMinutes > 0;
+
+    return Semantics(
+      label: 'Available time today: $availableTime',
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        color: hasTime ? const Color(0xFF10B981).withValues(alpha: 0.1) : Colors.grey.shade100,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: hasTime ? const Color(0xFF10B981) : Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.schedule,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      availableTime,
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: hasTime ? const Color(0xFF10B981) : Colors.grey.shade700,
+                          ),
+                    ),
+                    Text(
+                      'available today',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Build overdue tasks section
+  Widget _buildOverdueSection(BuildContext context, WidgetRef ref, DashboardData data) {
+    return Semantics(
+      label: 'Overdue tasks: ${data.overdueTasks.length} tasks',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'OVERDUE (${data.overdueTasks.length})',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFEF4444),
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...data.overdueTasks.map((task) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: TaskSummaryCard(
+                  task: task,
+                  isOverdue: true,
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  /// Build fixed commitments section (calendar events)
+  Widget _buildFixedCommitmentsSection(BuildContext context, DashboardData data) {
+    return Semantics(
+      label: 'Fixed commitments: ${data.todayEvents.length} events',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.event, color: Color(0xFF2563EB), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Fixed Commitments',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (data.todayEvents.isEmpty)
+            _buildEmptyState(
+              context,
+              'No events scheduled',
+              'Your day is clear',
+              Icons.event_available,
+            )
+          else
+            ...data.todayEvents.map((event) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: EventCard(event: event),
+                )),
+        ],
+      ),
+    );
+  }
+
+  /// Build today's tasks section
+  Widget _buildTodayTasksSection(BuildContext context, WidgetRef ref, DashboardData data) {
+    return Semantics(
+      label: 'Today\'s tasks: ${data.todayTasks.length} tasks',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.check_circle_outline, color: Color(0xFF2563EB), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Today\'s Tasks (${data.todayTasks.length})',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (data.todayTasks.isEmpty)
+            _buildEmptyState(
+              context,
+              'No tasks due today',
+              'Enjoy your clear schedule',
+              Icons.check_circle,
+            )
+          else
+            ...data.todayTasks.map((task) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TaskSummaryCard(task: task),
+                )),
+        ],
+      ),
+    );
+  }
+
+  /// Build tomorrow preview
+  Widget _buildTomorrowPreview(BuildContext context, WidgetRef ref) {
+    // For now, just show a simple placeholder
+    // TODO: Add tomorrow's events and tasks count from a provider
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              Icons.arrow_forward,
+              color: Colors.grey.shade600,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Tomorrow: Check upcoming tasks and events',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey.shade700,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build empty state for sections
+  Widget _buildEmptyState(
+    BuildContext context,
+    String title,
+    String subtitle,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 48,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+            ),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade500,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build loading state
+  Widget _buildLoadingState() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  /// Build error state
+  Widget _buildErrorState(BuildContext context, Object error, WidgetRef ref) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.error_outline,
+              color: Color(0xFFEF4444),
+              size: 64,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Failed to load dashboard',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error.toString(),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                ref.invalidate(dashboardDataProvider);
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build Weekly View content (placeholder)
   Widget _buildWeeklyView(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,25 +432,11 @@ class DashboardScreen extends ConsumerWidget {
             'See your tasks and events for the entire week',
           ),
         ),
-        const SizedBox(height: 16),
-
-        // Upcoming deadlines
-        _buildSectionCard(
-          context,
-          title: 'Upcoming Deadlines',
-          icon: Icons.alarm,
-          iconColor: const Color(0xFFF59E0B),
-          content: _buildPlaceholderContent(
-            context,
-            'No upcoming deadlines',
-            'Tasks with deadlines this week will appear here',
-          ),
-        ),
       ],
     );
   }
 
-  /// Build Monthly View content
+  /// Build Monthly View content (placeholder)
   Widget _buildMonthlyView(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -173,20 +460,6 @@ class DashboardScreen extends ConsumerWidget {
             context,
             'Monthly view coming soon',
             'See your tasks and events for the entire month',
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Key dates
-        _buildSectionCard(
-          context,
-          title: 'Key Dates This Month',
-          icon: Icons.star_outline,
-          iconColor: const Color(0xFFF59E0B),
-          content: _buildPlaceholderContent(
-            context,
-            'No key dates',
-            'Important dates and events will appear here',
           ),
         ),
       ],
@@ -324,84 +597,6 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  /// Build quick actions card
-  Widget _buildQuickActionsCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Quick Actions',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            _QuickActionButton(
-              icon: Icons.add_task,
-              label: 'Add Task',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Task creation coming soon!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            _QuickActionButton(
-              icon: Icons.event,
-              label: 'Add Event',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Event creation coming soon!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            _QuickActionButton(
-              icon: Icons.person_add,
-              label: 'Add Contact',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Contact creation coming soon!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Get formatted date (e.g., "Monday, December 7, 2025")
-  String _getFormattedDate() {
-    final now = DateTime.now();
-    final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    final months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-
-    final weekday = weekdays[now.weekday - 1];
-    final month = months[now.month - 1];
-
-    return '$weekday, $month ${now.day}, ${now.year}';
-  }
-
   /// Get week range (e.g., "Dec 2 - Dec 8, 2025")
   String _getWeekRange() {
     final now = DateTime.now();
@@ -429,46 +624,6 @@ class DashboardScreen extends ConsumerWidget {
     ];
 
     return '${months[now.month - 1]} ${now.year}';
-  }
-}
-
-/// Quick action button widget
-class _QuickActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  const _QuickActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        side: BorderSide(color: Colors.grey.shade300),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF2563EB)),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.black87,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

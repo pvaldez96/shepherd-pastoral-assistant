@@ -70,7 +70,6 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
                 ),
           ]))
         .get();
@@ -218,7 +217,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -403,7 +402,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -432,7 +431,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -457,7 +456,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -478,7 +477,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -500,7 +499,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -551,7 +550,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -577,7 +576,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -604,7 +603,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .get();
@@ -728,7 +727,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .watch();
@@ -751,7 +750,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .watch();
@@ -774,7 +773,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             (t) => OrderingTerm(
                   expression: t.dueDate,
                   mode: OrderingMode.asc,
-                  nulls: NullsOrder.last,
+                  
                 ),
           ]))
         .watch();

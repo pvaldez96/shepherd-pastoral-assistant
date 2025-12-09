@@ -14,7 +14,7 @@ class $UsersTable extends Users with TableInfo<$UsersTable, User> {
       'id', aliasedName, false,
       type: DriftSqlType.string,
       requiredDuringInsert: false,
-      clientDefault: () => const Uuid().v4());
+      clientDefault: () => Uuid().v4());
   static const VerificationMeta _emailMeta = const VerificationMeta('email');
   @override
   late final GeneratedColumn<String> email = GeneratedColumn<String>(
@@ -615,15 +615,12 @@ class $UserSettingsTable extends UserSettings
       'id', aliasedName, false,
       type: DriftSqlType.string,
       requiredDuringInsert: false,
-      clientDefault: () => const Uuid().v4());
+      clientDefault: () => Uuid().v4());
   static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
   @override
   late final GeneratedColumn<String> userId = GeneratedColumn<String>(
       'user_id', aliasedName, false,
-      type: DriftSqlType.string,
-      requiredDuringInsert: true,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES users (id) ON DELETE CASCADE'));
+      type: DriftSqlType.string, requiredDuringInsert: true);
   static const VerificationMeta _elderContactFrequencyDaysMeta =
       const VerificationMeta('elderContactFrequencyDays');
   @override
@@ -1014,7 +1011,8 @@ class UserSetting extends DataClass implements Insertable<UserSetting> {
   final String id;
 
   /// Foreign key to users table - establishes 1:1 relationship
-  /// ON DELETE CASCADE: When user is deleted, their settings are automatically deleted
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
   final String userId;
 
   /// Target days between contacts with church elders
@@ -2295,15 +2293,12 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       'id', aliasedName, false,
       type: DriftSqlType.string,
       requiredDuringInsert: false,
-      clientDefault: () => const Uuid().v4());
+      clientDefault: () => Uuid().v4());
   static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
   @override
   late final GeneratedColumn<String> userId = GeneratedColumn<String>(
       'user_id', aliasedName, false,
-      type: DriftSqlType.string,
-      requiredDuringInsert: true,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES users (id) ON DELETE CASCADE'));
+      type: DriftSqlType.string, requiredDuringInsert: true);
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
   @override
   late final GeneratedColumn<String> title = GeneratedColumn<String>(
@@ -2374,10 +2369,8 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       const VerificationMeta('energyLevel');
   @override
   late final GeneratedColumn<String> energyLevel = GeneratedColumn<String>(
-      'energy_level', aliasedName, false,
-      type: DriftSqlType.string,
-      requiredDuringInsert: false,
-      defaultValue: const Constant('medium'));
+      'energy_level', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _personIdMeta =
       const VerificationMeta('personId');
   @override
@@ -2661,7 +2654,7 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       requiresFocus: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}requires_focus'])!,
       energyLevel: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}energy_level'])!,
+          .read(DriftSqlType.string, data['${effectivePrefix}energy_level']),
       personId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}person_id']),
       calendarEventId: attachedDatabase.typeMapping.read(
@@ -2703,7 +2696,8 @@ class Task extends DataClass implements Insertable<Task> {
 
   /// Foreign key to users table - establishes multi-tenant isolation
   /// Every task belongs to exactly one user (the pastor who created it)
-  /// ON DELETE CASCADE: When user is deleted, their tasks are automatically deleted
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
   final String userId;
 
   /// Task title - required, non-empty string
@@ -2797,15 +2791,15 @@ class Task extends DataClass implements Insertable<Task> {
   /// Energy level required to complete task effectively
   /// Valid values (enforced in app layer):
   /// - 'low': Can be done when tired (filing, simple emails)
-  /// - 'medium': Normal energy level (default)
+  /// - 'medium': Normal energy level
   /// - 'high': Requires peak mental energy (sermon writing, strategic planning)
   ///
   /// Used for smart scheduling:
   /// - Schedule high-energy tasks during peak focus hours
   /// - Save low-energy tasks for end of day
   /// - Match task energy to pastor's energy patterns
-  /// Default: 'medium'
-  final String energyLevel;
+  /// Nullable - not all tasks specify energy level
+  final String? energyLevel;
 
   /// Optional foreign key to people table (when implemented)
   /// Links task to specific person (e.g., "Visit John Smith in hospital")
@@ -2925,7 +2919,7 @@ class Task extends DataClass implements Insertable<Task> {
       required this.priority,
       required this.status,
       required this.requiresFocus,
-      required this.energyLevel,
+      this.energyLevel,
       this.personId,
       this.calendarEventId,
       this.sermonId,
@@ -2964,7 +2958,9 @@ class Task extends DataClass implements Insertable<Task> {
     map['priority'] = Variable<String>(priority);
     map['status'] = Variable<String>(status);
     map['requires_focus'] = Variable<bool>(requiresFocus);
-    map['energy_level'] = Variable<String>(energyLevel);
+    if (!nullToAbsent || energyLevel != null) {
+      map['energy_level'] = Variable<String>(energyLevel);
+    }
     if (!nullToAbsent || personId != null) {
       map['person_id'] = Variable<String>(personId);
     }
@@ -3018,7 +3014,9 @@ class Task extends DataClass implements Insertable<Task> {
       priority: Value(priority),
       status: Value(status),
       requiresFocus: Value(requiresFocus),
-      energyLevel: Value(energyLevel),
+      energyLevel: energyLevel == null && nullToAbsent
+          ? const Value.absent()
+          : Value(energyLevel),
       personId: personId == null && nullToAbsent
           ? const Value.absent()
           : Value(personId),
@@ -3066,7 +3064,7 @@ class Task extends DataClass implements Insertable<Task> {
       priority: serializer.fromJson<String>(json['priority']),
       status: serializer.fromJson<String>(json['status']),
       requiresFocus: serializer.fromJson<bool>(json['requiresFocus']),
-      energyLevel: serializer.fromJson<String>(json['energyLevel']),
+      energyLevel: serializer.fromJson<String?>(json['energyLevel']),
       personId: serializer.fromJson<String?>(json['personId']),
       calendarEventId: serializer.fromJson<String?>(json['calendarEventId']),
       sermonId: serializer.fromJson<String?>(json['sermonId']),
@@ -3098,7 +3096,7 @@ class Task extends DataClass implements Insertable<Task> {
       'priority': serializer.toJson<String>(priority),
       'status': serializer.toJson<String>(status),
       'requiresFocus': serializer.toJson<bool>(requiresFocus),
-      'energyLevel': serializer.toJson<String>(energyLevel),
+      'energyLevel': serializer.toJson<String?>(energyLevel),
       'personId': serializer.toJson<String?>(personId),
       'calendarEventId': serializer.toJson<String?>(calendarEventId),
       'sermonId': serializer.toJson<String?>(sermonId),
@@ -3127,7 +3125,7 @@ class Task extends DataClass implements Insertable<Task> {
           String? priority,
           String? status,
           bool? requiresFocus,
-          String? energyLevel,
+          Value<String?> energyLevel = const Value.absent(),
           Value<String?> personId = const Value.absent(),
           Value<String?> calendarEventId = const Value.absent(),
           Value<String?> sermonId = const Value.absent(),
@@ -3157,7 +3155,7 @@ class Task extends DataClass implements Insertable<Task> {
         priority: priority ?? this.priority,
         status: status ?? this.status,
         requiresFocus: requiresFocus ?? this.requiresFocus,
-        energyLevel: energyLevel ?? this.energyLevel,
+        energyLevel: energyLevel.present ? energyLevel.value : this.energyLevel,
         personId: personId.present ? personId.value : this.personId,
         calendarEventId: calendarEventId.present
             ? calendarEventId.value
@@ -3328,7 +3326,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
   final Value<String> priority;
   final Value<String> status;
   final Value<bool> requiresFocus;
-  final Value<String> energyLevel;
+  final Value<String?> energyLevel;
   final Value<String?> personId;
   final Value<String?> calendarEventId;
   final Value<String?> sermonId;
@@ -3473,7 +3471,7 @@ class TasksCompanion extends UpdateCompanion<Task> {
       Value<String>? priority,
       Value<String>? status,
       Value<bool>? requiresFocus,
-      Value<String>? energyLevel,
+      Value<String?>? energyLevel,
       Value<String?>? personId,
       Value<String?>? calendarEventId,
       Value<String?>? sermonId,
@@ -3639,6 +3637,4113 @@ class TasksCompanion extends UpdateCompanion<Task> {
   }
 }
 
+class $CalendarEventsTable extends CalendarEvents
+    with TableInfo<$CalendarEventsTable, CalendarEvent> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CalendarEventsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      clientDefault: () => Uuid().v4());
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+      'user_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _descriptionMeta =
+      const VerificationMeta('description');
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+      'description', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _locationMeta =
+      const VerificationMeta('location');
+  @override
+  late final GeneratedColumn<String> location = GeneratedColumn<String>(
+      'location', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _startDatetimeMeta =
+      const VerificationMeta('startDatetime');
+  @override
+  late final GeneratedColumn<int> startDatetime = GeneratedColumn<int>(
+      'start_datetime', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _endDatetimeMeta =
+      const VerificationMeta('endDatetime');
+  @override
+  late final GeneratedColumn<int> endDatetime = GeneratedColumn<int>(
+      'end_datetime', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _eventTypeMeta =
+      const VerificationMeta('eventType');
+  @override
+  late final GeneratedColumn<String> eventType = GeneratedColumn<String>(
+      'event_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _isRecurringMeta =
+      const VerificationMeta('isRecurring');
+  @override
+  late final GeneratedColumn<bool> isRecurring = GeneratedColumn<bool>(
+      'is_recurring', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_recurring" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _recurrencePatternMeta =
+      const VerificationMeta('recurrencePattern');
+  @override
+  late final GeneratedColumn<String> recurrencePattern =
+      GeneratedColumn<String>('recurrence_pattern', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _travelTimeMinutesMeta =
+      const VerificationMeta('travelTimeMinutes');
+  @override
+  late final GeneratedColumn<int> travelTimeMinutes = GeneratedColumn<int>(
+      'travel_time_minutes', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _energyDrainMeta =
+      const VerificationMeta('energyDrain');
+  @override
+  late final GeneratedColumn<String> energyDrain = GeneratedColumn<String>(
+      'energy_drain', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('medium'));
+  static const VerificationMeta _isMoveableMeta =
+      const VerificationMeta('isMoveable');
+  @override
+  late final GeneratedColumn<bool> isMoveable = GeneratedColumn<bool>(
+      'is_moveable', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_moveable" IN (0, 1))'),
+      defaultValue: const Constant(true));
+  static const VerificationMeta _requiresPreparationMeta =
+      const VerificationMeta('requiresPreparation');
+  @override
+  late final GeneratedColumn<bool> requiresPreparation = GeneratedColumn<bool>(
+      'requires_preparation', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("requires_preparation" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _preparationBufferHoursMeta =
+      const VerificationMeta('preparationBufferHours');
+  @override
+  late final GeneratedColumn<int> preparationBufferHours = GeneratedColumn<int>(
+      'preparation_buffer_hours', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _personIdMeta =
+      const VerificationMeta('personId');
+  @override
+  late final GeneratedColumn<String> personId = GeneratedColumn<String>(
+      'person_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('pending'));
+  static const VerificationMeta _localUpdatedAtMeta =
+      const VerificationMeta('localUpdatedAt');
+  @override
+  late final GeneratedColumn<int> localUpdatedAt = GeneratedColumn<int>(
+      'local_updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _serverUpdatedAtMeta =
+      const VerificationMeta('serverUpdatedAt');
+  @override
+  late final GeneratedColumn<int> serverUpdatedAt = GeneratedColumn<int>(
+      'server_updated_at', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+      'version', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        userId,
+        title,
+        description,
+        location,
+        startDatetime,
+        endDatetime,
+        eventType,
+        isRecurring,
+        recurrencePattern,
+        travelTimeMinutes,
+        energyDrain,
+        isMoveable,
+        requiresPreparation,
+        preparationBufferHours,
+        personId,
+        createdAt,
+        updatedAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_events';
+  @override
+  VerificationContext validateIntegrity(Insertable<CalendarEvent> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+          _descriptionMeta,
+          description.isAcceptableOrUnknown(
+              data['description']!, _descriptionMeta));
+    }
+    if (data.containsKey('location')) {
+      context.handle(_locationMeta,
+          location.isAcceptableOrUnknown(data['location']!, _locationMeta));
+    }
+    if (data.containsKey('start_datetime')) {
+      context.handle(
+          _startDatetimeMeta,
+          startDatetime.isAcceptableOrUnknown(
+              data['start_datetime']!, _startDatetimeMeta));
+    } else if (isInserting) {
+      context.missing(_startDatetimeMeta);
+    }
+    if (data.containsKey('end_datetime')) {
+      context.handle(
+          _endDatetimeMeta,
+          endDatetime.isAcceptableOrUnknown(
+              data['end_datetime']!, _endDatetimeMeta));
+    } else if (isInserting) {
+      context.missing(_endDatetimeMeta);
+    }
+    if (data.containsKey('event_type')) {
+      context.handle(_eventTypeMeta,
+          eventType.isAcceptableOrUnknown(data['event_type']!, _eventTypeMeta));
+    } else if (isInserting) {
+      context.missing(_eventTypeMeta);
+    }
+    if (data.containsKey('is_recurring')) {
+      context.handle(
+          _isRecurringMeta,
+          isRecurring.isAcceptableOrUnknown(
+              data['is_recurring']!, _isRecurringMeta));
+    }
+    if (data.containsKey('recurrence_pattern')) {
+      context.handle(
+          _recurrencePatternMeta,
+          recurrencePattern.isAcceptableOrUnknown(
+              data['recurrence_pattern']!, _recurrencePatternMeta));
+    }
+    if (data.containsKey('travel_time_minutes')) {
+      context.handle(
+          _travelTimeMinutesMeta,
+          travelTimeMinutes.isAcceptableOrUnknown(
+              data['travel_time_minutes']!, _travelTimeMinutesMeta));
+    }
+    if (data.containsKey('energy_drain')) {
+      context.handle(
+          _energyDrainMeta,
+          energyDrain.isAcceptableOrUnknown(
+              data['energy_drain']!, _energyDrainMeta));
+    }
+    if (data.containsKey('is_moveable')) {
+      context.handle(
+          _isMoveableMeta,
+          isMoveable.isAcceptableOrUnknown(
+              data['is_moveable']!, _isMoveableMeta));
+    }
+    if (data.containsKey('requires_preparation')) {
+      context.handle(
+          _requiresPreparationMeta,
+          requiresPreparation.isAcceptableOrUnknown(
+              data['requires_preparation']!, _requiresPreparationMeta));
+    }
+    if (data.containsKey('preparation_buffer_hours')) {
+      context.handle(
+          _preparationBufferHoursMeta,
+          preparationBufferHours.isAcceptableOrUnknown(
+              data['preparation_buffer_hours']!, _preparationBufferHoursMeta));
+    }
+    if (data.containsKey('person_id')) {
+      context.handle(_personIdMeta,
+          personId.isAcceptableOrUnknown(data['person_id']!, _personIdMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('local_updated_at')) {
+      context.handle(
+          _localUpdatedAtMeta,
+          localUpdatedAt.isAcceptableOrUnknown(
+              data['local_updated_at']!, _localUpdatedAtMeta));
+    }
+    if (data.containsKey('server_updated_at')) {
+      context.handle(
+          _serverUpdatedAtMeta,
+          serverUpdatedAt.isAcceptableOrUnknown(
+              data['server_updated_at']!, _serverUpdatedAtMeta));
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CalendarEvent map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CalendarEvent(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}user_id'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
+      description: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}description']),
+      location: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}location']),
+      startDatetime: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}start_datetime'])!,
+      endDatetime: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}end_datetime'])!,
+      eventType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}event_type'])!,
+      isRecurring: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_recurring'])!,
+      recurrencePattern: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}recurrence_pattern']),
+      travelTimeMinutes: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}travel_time_minutes']),
+      energyDrain: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}energy_drain'])!,
+      isMoveable: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_moveable'])!,
+      requiresPreparation: attachedDatabase.typeMapping.read(
+          DriftSqlType.bool, data['${effectivePrefix}requires_preparation'])!,
+      preparationBufferHours: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}preparation_buffer_hours']),
+      personId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}person_id']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      localUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}local_updated_at'])!,
+      serverUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}server_updated_at']),
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}version'])!,
+    );
+  }
+
+  @override
+  $CalendarEventsTable createAlias(String alias) {
+    return $CalendarEventsTable(attachedDatabase, alias);
+  }
+}
+
+class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
+  /// Primary key - UUID generated on client
+  /// Uses TEXT in SQLite to store UUID strings
+  /// Must match Supabase UUID format for seamless sync
+  final String id;
+
+  /// Foreign key to users table - establishes multi-tenant isolation
+  /// Every event belongs to exactly one user (the pastor who created it)
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  final String userId;
+
+  /// Event title - required, non-empty string
+  /// Example: "Sunday Worship Service", "Board Meeting", "Hospital Visit"
+  /// Constraint: Must have at least one non-whitespace character (validated in app layer)
+  final String title;
+
+  /// Optional detailed event description
+  /// Can include agenda, notes, context, or any additional information
+  /// Nullable - simple events may not need description
+  final String? description;
+
+  /// Optional event location
+  /// Can be physical address, room name, or virtual meeting link
+  /// Examples: "Main Sanctuary", "Conference Room A", "https://zoom.us/j/123456"
+  /// Nullable - some events don't have specific locations
+  final String? location;
+
+  /// Event start date and time (stored as Unix milliseconds)
+  /// Represents the exact moment the event begins (with timezone)
+  /// In Dart: DateTime.fromMillisecondsSinceEpoch(startDatetime)
+  /// Required - every event must have a start time
+  final int startDatetime;
+
+  /// Event end date and time (stored as Unix milliseconds)
+  /// Represents the exact moment the event ends (with timezone)
+  /// In Dart: DateTime.fromMillisecondsSinceEpoch(endDatetime)
+  /// Required - every event must have an end time
+  /// Constraint: Must be after start_datetime (validated in app layer)
+  final int endDatetime;
+
+  /// Event type/category - required field for organization and filtering
+  /// Valid values (enforced in app layer, matches Supabase CHECK constraint):
+  /// - 'service': Worship services (Sunday service, midweek service)
+  /// - 'meeting': Meetings (staff meetings, committee meetings, counseling)
+  /// - 'pastoral_visit': Pastoral care visits (hospital, home visits)
+  /// - 'personal': Personal time (family time, personal appointments)
+  /// - 'work': General work time (office hours, admin time)
+  /// - 'family': Family commitments (dinner, kids activities)
+  /// - 'blocked_time': Dedicated work blocks (sermon prep, deep work)
+  ///
+  /// Event type enables:
+  /// - Filtered calendar views ("Show only pastoral visits")
+  /// - Time allocation tracking ("How much time on meetings vs pastoral care?")
+  /// - Calendar color coding
+  /// - Workload balancing suggestions
+  final String eventType;
+
+  /// Whether this event repeats on a schedule
+  /// If true, recurrence_pattern contains the recurrence rules
+  /// Examples:
+  /// - Sunday worship service (weekly, every Sunday at 10am)
+  /// - Monthly board meeting (monthly, first Tuesday at 7pm)
+  /// Default: false (one-time event)
+  final bool isRecurring;
+
+  /// Recurrence pattern (JSON string)
+  /// Stores recurrence rules in RRULE format or custom JSON structure
+  /// Example formats:
+  /// - RRULE: "FREQ=WEEKLY;BYDAY=SU" (every Sunday)
+  /// - Custom JSON: {"frequency": "weekly", "days": ["sunday"], "count": 52}
+  /// Nullable - only set when is_recurring = true
+  /// In Supabase this is JSONB, here stored as TEXT and parsed as JSON
+  final String? recurrencePattern;
+
+  /// Travel time buffer before event (in minutes)
+  /// Time needed to travel to the event location
+  /// Used for:
+  /// - Blocking calendar before event start
+  /// - Travel time tracking and reimbursement
+  /// - Realistic scheduling (don't schedule back-to-back events across town)
+  /// Examples: 30 (for hospital across town), 0 (for on-site meeting)
+  /// Nullable - not all events require travel
+  /// Constraint: Must be positive integer if set (validated in app layer)
+  final int? travelTimeMinutes;
+
+  /// Energy cost of this event (low, medium, high)
+  /// Valid values (enforced in app layer):
+  /// - 'low': Low energy drain (routine tasks, familiar interactions)
+  /// - 'medium': Normal energy drain (typical meetings, services)
+  /// - 'high': High energy drain (difficult conversations, intense work, large groups)
+  ///
+  /// Used for:
+  /// - Energy-aware scheduling (don't stack high-drain events)
+  /// - Recovery time planning (schedule low-drain activities after high-drain)
+  /// - Burnout prevention (track weekly energy expenditure)
+  /// - Suggesting rest/breaks after high-energy events
+  /// Default: 'medium'
+  final String energyDrain;
+
+  /// Whether this event can be rescheduled
+  /// Used for scheduling optimization and conflict resolution
+  /// Examples:
+  /// - Sunday worship service: is_moveable = false (fixed commitment)
+  /// - Staff meeting: is_moveable = true (can reschedule if needed)
+  /// - Family dinner: is_moveable = false (personal commitment)
+  /// Default: true (most events are flexible)
+  final bool isMoveable;
+
+  /// Whether this event requires preparation time
+  /// If true, should schedule preparation_buffer_hours before the event
+  /// Examples:
+  /// - Sunday service: requires_preparation = true (sermon prep, worship planning)
+  /// - Board meeting: requires_preparation = true (review agenda, prepare reports)
+  /// - Coffee chat: requires_preparation = false (casual, no prep needed)
+  /// Default: false
+  final bool requiresPreparation;
+
+  /// Hours needed for preparation before the event
+  /// Only meaningful when requires_preparation = true
+  /// Used for:
+  /// - Automatic task creation (create prep task N hours before event)
+  /// - Scheduling suggestions (block time for prep)
+  /// - Workload planning (factor prep time into weekly schedule)
+  /// Examples: 8 (for Sunday sermon), 3 (for board meeting), null (if no prep needed)
+  /// Nullable - only set when requires_preparation = true
+  /// Constraint: Must be positive integer if set (validated in app layer)
+  final int? preparationBufferHours;
+
+  /// Optional foreign key to people table (when implemented)
+  /// Links event to specific person
+  /// Use cases:
+  /// - Pastoral visits for specific members ("Visit John Smith in hospital")
+  /// - One-on-one meetings ("Coffee with Sarah")
+  /// - Person-specific events ("John's birthday celebration")
+  /// Nullable - not all events relate to specific people
+  /// Note: FK constraint will be added when people table is created
+  final String? personId;
+
+  /// Timestamp when event record was created (Unix milliseconds)
+  /// Automatically set on insert
+  final int createdAt;
+
+  /// Timestamp when event record was last updated (Unix milliseconds)
+  /// Should be updated on every modification
+  /// Used for conflict resolution during sync
+  final int updatedAt;
+
+  /// Sync status: 'synced', 'pending', or 'conflict'
+  /// - synced: Record matches server state exactly
+  /// - pending: Local changes not yet pushed to Supabase (requires sync)
+  /// - conflict: Both local and server have conflicting changes (requires user resolution)
+  ///
+  /// Sync workflow:
+  /// 1. User creates/modifies event -> syncStatus = 'pending'
+  /// 2. Sync engine uploads to Supabase -> syncStatus = 'synced'
+  /// 3. If server has newer version -> syncStatus = 'conflict'
+  /// Default: 'pending' (new events need to be synced)
+  final String syncStatus;
+
+  /// Unix timestamp (milliseconds) when record was last modified locally
+  /// Updated on every local modification
+  /// Used to:
+  /// - Detect local changes that need syncing
+  /// - Order sync operations (oldest changes first)
+  /// - Resolve conflicts (compare with serverUpdatedAt)
+  final int localUpdatedAt;
+
+  /// Unix timestamp (milliseconds) of last known server state
+  /// Updated when successfully synced with Supabase
+  /// Used to:
+  /// - Detect server-side changes during sync
+  /// - Resolve conflicts (if localUpdatedAt > serverUpdatedAt, local wins)
+  /// Nullable - not set until first successful sync
+  final int? serverUpdatedAt;
+
+  /// Version counter for optimistic locking
+  /// Incremented on each update (local or remote)
+  /// Used to:
+  /// - Detect concurrent modifications
+  /// - Prevent lost updates (compare versions before overwriting)
+  /// - Resolve three-way conflicts
+  /// Default: 1 (initial version)
+  final int version;
+  const CalendarEvent(
+      {required this.id,
+      required this.userId,
+      required this.title,
+      this.description,
+      this.location,
+      required this.startDatetime,
+      required this.endDatetime,
+      required this.eventType,
+      required this.isRecurring,
+      this.recurrencePattern,
+      this.travelTimeMinutes,
+      required this.energyDrain,
+      required this.isMoveable,
+      required this.requiresPreparation,
+      this.preparationBufferHours,
+      this.personId,
+      required this.createdAt,
+      required this.updatedAt,
+      required this.syncStatus,
+      required this.localUpdatedAt,
+      this.serverUpdatedAt,
+      required this.version});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    if (!nullToAbsent || location != null) {
+      map['location'] = Variable<String>(location);
+    }
+    map['start_datetime'] = Variable<int>(startDatetime);
+    map['end_datetime'] = Variable<int>(endDatetime);
+    map['event_type'] = Variable<String>(eventType);
+    map['is_recurring'] = Variable<bool>(isRecurring);
+    if (!nullToAbsent || recurrencePattern != null) {
+      map['recurrence_pattern'] = Variable<String>(recurrencePattern);
+    }
+    if (!nullToAbsent || travelTimeMinutes != null) {
+      map['travel_time_minutes'] = Variable<int>(travelTimeMinutes);
+    }
+    map['energy_drain'] = Variable<String>(energyDrain);
+    map['is_moveable'] = Variable<bool>(isMoveable);
+    map['requires_preparation'] = Variable<bool>(requiresPreparation);
+    if (!nullToAbsent || preparationBufferHours != null) {
+      map['preparation_buffer_hours'] = Variable<int>(preparationBufferHours);
+    }
+    if (!nullToAbsent || personId != null) {
+      map['person_id'] = Variable<String>(personId);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['local_updated_at'] = Variable<int>(localUpdatedAt);
+    if (!nullToAbsent || serverUpdatedAt != null) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt);
+    }
+    map['version'] = Variable<int>(version);
+    return map;
+  }
+
+  CalendarEventsCompanion toCompanion(bool nullToAbsent) {
+    return CalendarEventsCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      title: Value(title),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      location: location == null && nullToAbsent
+          ? const Value.absent()
+          : Value(location),
+      startDatetime: Value(startDatetime),
+      endDatetime: Value(endDatetime),
+      eventType: Value(eventType),
+      isRecurring: Value(isRecurring),
+      recurrencePattern: recurrencePattern == null && nullToAbsent
+          ? const Value.absent()
+          : Value(recurrencePattern),
+      travelTimeMinutes: travelTimeMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(travelTimeMinutes),
+      energyDrain: Value(energyDrain),
+      isMoveable: Value(isMoveable),
+      requiresPreparation: Value(requiresPreparation),
+      preparationBufferHours: preparationBufferHours == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preparationBufferHours),
+      personId: personId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(personId),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      syncStatus: Value(syncStatus),
+      localUpdatedAt: Value(localUpdatedAt),
+      serverUpdatedAt: serverUpdatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverUpdatedAt),
+      version: Value(version),
+    );
+  }
+
+  factory CalendarEvent.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CalendarEvent(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      title: serializer.fromJson<String>(json['title']),
+      description: serializer.fromJson<String?>(json['description']),
+      location: serializer.fromJson<String?>(json['location']),
+      startDatetime: serializer.fromJson<int>(json['startDatetime']),
+      endDatetime: serializer.fromJson<int>(json['endDatetime']),
+      eventType: serializer.fromJson<String>(json['eventType']),
+      isRecurring: serializer.fromJson<bool>(json['isRecurring']),
+      recurrencePattern:
+          serializer.fromJson<String?>(json['recurrencePattern']),
+      travelTimeMinutes: serializer.fromJson<int?>(json['travelTimeMinutes']),
+      energyDrain: serializer.fromJson<String>(json['energyDrain']),
+      isMoveable: serializer.fromJson<bool>(json['isMoveable']),
+      requiresPreparation:
+          serializer.fromJson<bool>(json['requiresPreparation']),
+      preparationBufferHours:
+          serializer.fromJson<int?>(json['preparationBufferHours']),
+      personId: serializer.fromJson<String?>(json['personId']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      localUpdatedAt: serializer.fromJson<int>(json['localUpdatedAt']),
+      serverUpdatedAt: serializer.fromJson<int?>(json['serverUpdatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'title': serializer.toJson<String>(title),
+      'description': serializer.toJson<String?>(description),
+      'location': serializer.toJson<String?>(location),
+      'startDatetime': serializer.toJson<int>(startDatetime),
+      'endDatetime': serializer.toJson<int>(endDatetime),
+      'eventType': serializer.toJson<String>(eventType),
+      'isRecurring': serializer.toJson<bool>(isRecurring),
+      'recurrencePattern': serializer.toJson<String?>(recurrencePattern),
+      'travelTimeMinutes': serializer.toJson<int?>(travelTimeMinutes),
+      'energyDrain': serializer.toJson<String>(energyDrain),
+      'isMoveable': serializer.toJson<bool>(isMoveable),
+      'requiresPreparation': serializer.toJson<bool>(requiresPreparation),
+      'preparationBufferHours': serializer.toJson<int?>(preparationBufferHours),
+      'personId': serializer.toJson<String?>(personId),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'localUpdatedAt': serializer.toJson<int>(localUpdatedAt),
+      'serverUpdatedAt': serializer.toJson<int?>(serverUpdatedAt),
+      'version': serializer.toJson<int>(version),
+    };
+  }
+
+  CalendarEvent copyWith(
+          {String? id,
+          String? userId,
+          String? title,
+          Value<String?> description = const Value.absent(),
+          Value<String?> location = const Value.absent(),
+          int? startDatetime,
+          int? endDatetime,
+          String? eventType,
+          bool? isRecurring,
+          Value<String?> recurrencePattern = const Value.absent(),
+          Value<int?> travelTimeMinutes = const Value.absent(),
+          String? energyDrain,
+          bool? isMoveable,
+          bool? requiresPreparation,
+          Value<int?> preparationBufferHours = const Value.absent(),
+          Value<String?> personId = const Value.absent(),
+          int? createdAt,
+          int? updatedAt,
+          String? syncStatus,
+          int? localUpdatedAt,
+          Value<int?> serverUpdatedAt = const Value.absent(),
+          int? version}) =>
+      CalendarEvent(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        title: title ?? this.title,
+        description: description.present ? description.value : this.description,
+        location: location.present ? location.value : this.location,
+        startDatetime: startDatetime ?? this.startDatetime,
+        endDatetime: endDatetime ?? this.endDatetime,
+        eventType: eventType ?? this.eventType,
+        isRecurring: isRecurring ?? this.isRecurring,
+        recurrencePattern: recurrencePattern.present
+            ? recurrencePattern.value
+            : this.recurrencePattern,
+        travelTimeMinutes: travelTimeMinutes.present
+            ? travelTimeMinutes.value
+            : this.travelTimeMinutes,
+        energyDrain: energyDrain ?? this.energyDrain,
+        isMoveable: isMoveable ?? this.isMoveable,
+        requiresPreparation: requiresPreparation ?? this.requiresPreparation,
+        preparationBufferHours: preparationBufferHours.present
+            ? preparationBufferHours.value
+            : this.preparationBufferHours,
+        personId: personId.present ? personId.value : this.personId,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        syncStatus: syncStatus ?? this.syncStatus,
+        localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+        serverUpdatedAt: serverUpdatedAt.present
+            ? serverUpdatedAt.value
+            : this.serverUpdatedAt,
+        version: version ?? this.version,
+      );
+  CalendarEvent copyWithCompanion(CalendarEventsCompanion data) {
+    return CalendarEvent(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      title: data.title.present ? data.title.value : this.title,
+      description:
+          data.description.present ? data.description.value : this.description,
+      location: data.location.present ? data.location.value : this.location,
+      startDatetime: data.startDatetime.present
+          ? data.startDatetime.value
+          : this.startDatetime,
+      endDatetime:
+          data.endDatetime.present ? data.endDatetime.value : this.endDatetime,
+      eventType: data.eventType.present ? data.eventType.value : this.eventType,
+      isRecurring:
+          data.isRecurring.present ? data.isRecurring.value : this.isRecurring,
+      recurrencePattern: data.recurrencePattern.present
+          ? data.recurrencePattern.value
+          : this.recurrencePattern,
+      travelTimeMinutes: data.travelTimeMinutes.present
+          ? data.travelTimeMinutes.value
+          : this.travelTimeMinutes,
+      energyDrain:
+          data.energyDrain.present ? data.energyDrain.value : this.energyDrain,
+      isMoveable:
+          data.isMoveable.present ? data.isMoveable.value : this.isMoveable,
+      requiresPreparation: data.requiresPreparation.present
+          ? data.requiresPreparation.value
+          : this.requiresPreparation,
+      preparationBufferHours: data.preparationBufferHours.present
+          ? data.preparationBufferHours.value
+          : this.preparationBufferHours,
+      personId: data.personId.present ? data.personId.value : this.personId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      localUpdatedAt: data.localUpdatedAt.present
+          ? data.localUpdatedAt.value
+          : this.localUpdatedAt,
+      serverUpdatedAt: data.serverUpdatedAt.present
+          ? data.serverUpdatedAt.value
+          : this.serverUpdatedAt,
+      version: data.version.present ? data.version.value : this.version,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CalendarEvent(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('title: $title, ')
+          ..write('description: $description, ')
+          ..write('location: $location, ')
+          ..write('startDatetime: $startDatetime, ')
+          ..write('endDatetime: $endDatetime, ')
+          ..write('eventType: $eventType, ')
+          ..write('isRecurring: $isRecurring, ')
+          ..write('recurrencePattern: $recurrencePattern, ')
+          ..write('travelTimeMinutes: $travelTimeMinutes, ')
+          ..write('energyDrain: $energyDrain, ')
+          ..write('isMoveable: $isMoveable, ')
+          ..write('requiresPreparation: $requiresPreparation, ')
+          ..write('preparationBufferHours: $preparationBufferHours, ')
+          ..write('personId: $personId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+        id,
+        userId,
+        title,
+        description,
+        location,
+        startDatetime,
+        endDatetime,
+        eventType,
+        isRecurring,
+        recurrencePattern,
+        travelTimeMinutes,
+        energyDrain,
+        isMoveable,
+        requiresPreparation,
+        preparationBufferHours,
+        personId,
+        createdAt,
+        updatedAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CalendarEvent &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.title == this.title &&
+          other.description == this.description &&
+          other.location == this.location &&
+          other.startDatetime == this.startDatetime &&
+          other.endDatetime == this.endDatetime &&
+          other.eventType == this.eventType &&
+          other.isRecurring == this.isRecurring &&
+          other.recurrencePattern == this.recurrencePattern &&
+          other.travelTimeMinutes == this.travelTimeMinutes &&
+          other.energyDrain == this.energyDrain &&
+          other.isMoveable == this.isMoveable &&
+          other.requiresPreparation == this.requiresPreparation &&
+          other.preparationBufferHours == this.preparationBufferHours &&
+          other.personId == this.personId &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.syncStatus == this.syncStatus &&
+          other.localUpdatedAt == this.localUpdatedAt &&
+          other.serverUpdatedAt == this.serverUpdatedAt &&
+          other.version == this.version);
+}
+
+class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> title;
+  final Value<String?> description;
+  final Value<String?> location;
+  final Value<int> startDatetime;
+  final Value<int> endDatetime;
+  final Value<String> eventType;
+  final Value<bool> isRecurring;
+  final Value<String?> recurrencePattern;
+  final Value<int?> travelTimeMinutes;
+  final Value<String> energyDrain;
+  final Value<bool> isMoveable;
+  final Value<bool> requiresPreparation;
+  final Value<int?> preparationBufferHours;
+  final Value<String?> personId;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<String> syncStatus;
+  final Value<int> localUpdatedAt;
+  final Value<int?> serverUpdatedAt;
+  final Value<int> version;
+  final Value<int> rowid;
+  const CalendarEventsCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.description = const Value.absent(),
+    this.location = const Value.absent(),
+    this.startDatetime = const Value.absent(),
+    this.endDatetime = const Value.absent(),
+    this.eventType = const Value.absent(),
+    this.isRecurring = const Value.absent(),
+    this.recurrencePattern = const Value.absent(),
+    this.travelTimeMinutes = const Value.absent(),
+    this.energyDrain = const Value.absent(),
+    this.isMoveable = const Value.absent(),
+    this.requiresPreparation = const Value.absent(),
+    this.preparationBufferHours = const Value.absent(),
+    this.personId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CalendarEventsCompanion.insert({
+    this.id = const Value.absent(),
+    required String userId,
+    required String title,
+    this.description = const Value.absent(),
+    this.location = const Value.absent(),
+    required int startDatetime,
+    required int endDatetime,
+    required String eventType,
+    this.isRecurring = const Value.absent(),
+    this.recurrencePattern = const Value.absent(),
+    this.travelTimeMinutes = const Value.absent(),
+    this.energyDrain = const Value.absent(),
+    this.isMoveable = const Value.absent(),
+    this.requiresPreparation = const Value.absent(),
+    this.preparationBufferHours = const Value.absent(),
+    this.personId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : userId = Value(userId),
+        title = Value(title),
+        startDatetime = Value(startDatetime),
+        endDatetime = Value(endDatetime),
+        eventType = Value(eventType);
+  static Insertable<CalendarEvent> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? title,
+    Expression<String>? description,
+    Expression<String>? location,
+    Expression<int>? startDatetime,
+    Expression<int>? endDatetime,
+    Expression<String>? eventType,
+    Expression<bool>? isRecurring,
+    Expression<String>? recurrencePattern,
+    Expression<int>? travelTimeMinutes,
+    Expression<String>? energyDrain,
+    Expression<bool>? isMoveable,
+    Expression<bool>? requiresPreparation,
+    Expression<int>? preparationBufferHours,
+    Expression<String>? personId,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<String>? syncStatus,
+    Expression<int>? localUpdatedAt,
+    Expression<int>? serverUpdatedAt,
+    Expression<int>? version,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+      if (location != null) 'location': location,
+      if (startDatetime != null) 'start_datetime': startDatetime,
+      if (endDatetime != null) 'end_datetime': endDatetime,
+      if (eventType != null) 'event_type': eventType,
+      if (isRecurring != null) 'is_recurring': isRecurring,
+      if (recurrencePattern != null) 'recurrence_pattern': recurrencePattern,
+      if (travelTimeMinutes != null) 'travel_time_minutes': travelTimeMinutes,
+      if (energyDrain != null) 'energy_drain': energyDrain,
+      if (isMoveable != null) 'is_moveable': isMoveable,
+      if (requiresPreparation != null)
+        'requires_preparation': requiresPreparation,
+      if (preparationBufferHours != null)
+        'preparation_buffer_hours': preparationBufferHours,
+      if (personId != null) 'person_id': personId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (localUpdatedAt != null) 'local_updated_at': localUpdatedAt,
+      if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+      if (version != null) 'version': version,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CalendarEventsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? userId,
+      Value<String>? title,
+      Value<String?>? description,
+      Value<String?>? location,
+      Value<int>? startDatetime,
+      Value<int>? endDatetime,
+      Value<String>? eventType,
+      Value<bool>? isRecurring,
+      Value<String?>? recurrencePattern,
+      Value<int?>? travelTimeMinutes,
+      Value<String>? energyDrain,
+      Value<bool>? isMoveable,
+      Value<bool>? requiresPreparation,
+      Value<int?>? preparationBufferHours,
+      Value<String?>? personId,
+      Value<int>? createdAt,
+      Value<int>? updatedAt,
+      Value<String>? syncStatus,
+      Value<int>? localUpdatedAt,
+      Value<int?>? serverUpdatedAt,
+      Value<int>? version,
+      Value<int>? rowid}) {
+    return CalendarEventsCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      location: location ?? this.location,
+      startDatetime: startDatetime ?? this.startDatetime,
+      endDatetime: endDatetime ?? this.endDatetime,
+      eventType: eventType ?? this.eventType,
+      isRecurring: isRecurring ?? this.isRecurring,
+      recurrencePattern: recurrencePattern ?? this.recurrencePattern,
+      travelTimeMinutes: travelTimeMinutes ?? this.travelTimeMinutes,
+      energyDrain: energyDrain ?? this.energyDrain,
+      isMoveable: isMoveable ?? this.isMoveable,
+      requiresPreparation: requiresPreparation ?? this.requiresPreparation,
+      preparationBufferHours:
+          preparationBufferHours ?? this.preparationBufferHours,
+      personId: personId ?? this.personId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      version: version ?? this.version,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (location.present) {
+      map['location'] = Variable<String>(location.value);
+    }
+    if (startDatetime.present) {
+      map['start_datetime'] = Variable<int>(startDatetime.value);
+    }
+    if (endDatetime.present) {
+      map['end_datetime'] = Variable<int>(endDatetime.value);
+    }
+    if (eventType.present) {
+      map['event_type'] = Variable<String>(eventType.value);
+    }
+    if (isRecurring.present) {
+      map['is_recurring'] = Variable<bool>(isRecurring.value);
+    }
+    if (recurrencePattern.present) {
+      map['recurrence_pattern'] = Variable<String>(recurrencePattern.value);
+    }
+    if (travelTimeMinutes.present) {
+      map['travel_time_minutes'] = Variable<int>(travelTimeMinutes.value);
+    }
+    if (energyDrain.present) {
+      map['energy_drain'] = Variable<String>(energyDrain.value);
+    }
+    if (isMoveable.present) {
+      map['is_moveable'] = Variable<bool>(isMoveable.value);
+    }
+    if (requiresPreparation.present) {
+      map['requires_preparation'] = Variable<bool>(requiresPreparation.value);
+    }
+    if (preparationBufferHours.present) {
+      map['preparation_buffer_hours'] =
+          Variable<int>(preparationBufferHours.value);
+    }
+    if (personId.present) {
+      map['person_id'] = Variable<String>(personId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (localUpdatedAt.present) {
+      map['local_updated_at'] = Variable<int>(localUpdatedAt.value);
+    }
+    if (serverUpdatedAt.present) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CalendarEventsCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('title: $title, ')
+          ..write('description: $description, ')
+          ..write('location: $location, ')
+          ..write('startDatetime: $startDatetime, ')
+          ..write('endDatetime: $endDatetime, ')
+          ..write('eventType: $eventType, ')
+          ..write('isRecurring: $isRecurring, ')
+          ..write('recurrencePattern: $recurrencePattern, ')
+          ..write('travelTimeMinutes: $travelTimeMinutes, ')
+          ..write('energyDrain: $energyDrain, ')
+          ..write('isMoveable: $isMoveable, ')
+          ..write('requiresPreparation: $requiresPreparation, ')
+          ..write('preparationBufferHours: $preparationBufferHours, ')
+          ..write('personId: $personId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $HouseholdsTable extends Households
+    with TableInfo<$HouseholdsTable, Household> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $HouseholdsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      clientDefault: () => const Uuid().v4());
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+      'user_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _addressMeta =
+      const VerificationMeta('address');
+  @override
+  late final GeneratedColumn<String> address = GeneratedColumn<String>(
+      'address', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('pending'));
+  static const VerificationMeta _localUpdatedAtMeta =
+      const VerificationMeta('localUpdatedAt');
+  @override
+  late final GeneratedColumn<int> localUpdatedAt = GeneratedColumn<int>(
+      'local_updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _serverUpdatedAtMeta =
+      const VerificationMeta('serverUpdatedAt');
+  @override
+  late final GeneratedColumn<int> serverUpdatedAt = GeneratedColumn<int>(
+      'server_updated_at', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+      'version', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        userId,
+        name,
+        address,
+        createdAt,
+        updatedAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'households';
+  @override
+  VerificationContext validateIntegrity(Insertable<Household> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('address')) {
+      context.handle(_addressMeta,
+          address.isAcceptableOrUnknown(data['address']!, _addressMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('local_updated_at')) {
+      context.handle(
+          _localUpdatedAtMeta,
+          localUpdatedAt.isAcceptableOrUnknown(
+              data['local_updated_at']!, _localUpdatedAtMeta));
+    }
+    if (data.containsKey('server_updated_at')) {
+      context.handle(
+          _serverUpdatedAtMeta,
+          serverUpdatedAt.isAcceptableOrUnknown(
+              data['server_updated_at']!, _serverUpdatedAtMeta));
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Household map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Household(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}user_id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      address: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}address']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      localUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}local_updated_at'])!,
+      serverUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}server_updated_at']),
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}version'])!,
+    );
+  }
+
+  @override
+  $HouseholdsTable createAlias(String alias) {
+    return $HouseholdsTable(attachedDatabase, alias);
+  }
+}
+
+class Household extends DataClass implements Insertable<Household> {
+  /// Primary key - UUID generated on client
+  /// Uses TEXT in SQLite to store UUID strings
+  /// Must match Supabase UUID format for seamless sync
+  final String id;
+
+  /// Foreign key to users table - establishes multi-tenant isolation
+  /// Every household belongs to exactly one user (the pastor who created it)
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  final String userId;
+
+  /// Household name - required, non-empty string
+  /// Example: "Smith Family", "Johnson Household", "The Wilsons"
+  /// Constraint: Must have at least one non-whitespace character (validated in app layer)
+  final String name;
+
+  /// Optional household address
+  /// Can be full street address or just general location
+  /// Example: "123 Main St, Springfield, IL 62701"
+  /// Nullable - not all households need address tracking
+  final String? address;
+
+  /// Timestamp when household record was created (Unix milliseconds)
+  /// Automatically set on insert
+  final int createdAt;
+
+  /// Timestamp when household record was last updated (Unix milliseconds)
+  /// Should be updated on every modification
+  /// Used for conflict resolution during sync
+  final int updatedAt;
+
+  /// Sync status: 'synced', 'pending', or 'conflict'
+  /// - synced: Record matches server state exactly
+  /// - pending: Local changes not yet pushed to Supabase (requires sync)
+  /// - conflict: Both local and server have conflicting changes (requires user resolution)
+  ///
+  /// Sync workflow:
+  /// 1. User modifies household -> syncStatus = 'pending'
+  /// 2. Sync engine uploads to Supabase -> syncStatus = 'synced'
+  /// 3. If server has newer version -> syncStatus = 'conflict'
+  /// Default: 'pending' (new households need to be synced)
+  final String syncStatus;
+
+  /// Unix timestamp (milliseconds) when record was last modified locally
+  /// Updated on every local modification
+  /// Used to:
+  /// - Detect local changes that need syncing
+  /// - Order sync operations (oldest changes first)
+  /// - Resolve conflicts (compare with serverUpdatedAt)
+  final int localUpdatedAt;
+
+  /// Unix timestamp (milliseconds) of last known server state
+  /// Updated when successfully synced with Supabase
+  /// Used to:
+  /// - Detect server-side changes during sync
+  /// - Resolve conflicts (if localUpdatedAt > serverUpdatedAt, local wins)
+  /// Nullable - not set until first successful sync
+  final int? serverUpdatedAt;
+
+  /// Version counter for optimistic locking
+  /// Incremented on each update (local or remote)
+  /// Used to:
+  /// - Detect concurrent modifications
+  /// - Prevent lost updates (compare versions before overwriting)
+  /// - Resolve three-way conflicts
+  /// Default: 1 (initial version)
+  final int version;
+  const Household(
+      {required this.id,
+      required this.userId,
+      required this.name,
+      this.address,
+      required this.createdAt,
+      required this.updatedAt,
+      required this.syncStatus,
+      required this.localUpdatedAt,
+      this.serverUpdatedAt,
+      required this.version});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || address != null) {
+      map['address'] = Variable<String>(address);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['local_updated_at'] = Variable<int>(localUpdatedAt);
+    if (!nullToAbsent || serverUpdatedAt != null) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt);
+    }
+    map['version'] = Variable<int>(version);
+    return map;
+  }
+
+  HouseholdsCompanion toCompanion(bool nullToAbsent) {
+    return HouseholdsCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      name: Value(name),
+      address: address == null && nullToAbsent
+          ? const Value.absent()
+          : Value(address),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      syncStatus: Value(syncStatus),
+      localUpdatedAt: Value(localUpdatedAt),
+      serverUpdatedAt: serverUpdatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverUpdatedAt),
+      version: Value(version),
+    );
+  }
+
+  factory Household.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Household(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      name: serializer.fromJson<String>(json['name']),
+      address: serializer.fromJson<String?>(json['address']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      localUpdatedAt: serializer.fromJson<int>(json['localUpdatedAt']),
+      serverUpdatedAt: serializer.fromJson<int?>(json['serverUpdatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'name': serializer.toJson<String>(name),
+      'address': serializer.toJson<String?>(address),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'localUpdatedAt': serializer.toJson<int>(localUpdatedAt),
+      'serverUpdatedAt': serializer.toJson<int?>(serverUpdatedAt),
+      'version': serializer.toJson<int>(version),
+    };
+  }
+
+  Household copyWith(
+          {String? id,
+          String? userId,
+          String? name,
+          Value<String?> address = const Value.absent(),
+          int? createdAt,
+          int? updatedAt,
+          String? syncStatus,
+          int? localUpdatedAt,
+          Value<int?> serverUpdatedAt = const Value.absent(),
+          int? version}) =>
+      Household(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        name: name ?? this.name,
+        address: address.present ? address.value : this.address,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        syncStatus: syncStatus ?? this.syncStatus,
+        localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+        serverUpdatedAt: serverUpdatedAt.present
+            ? serverUpdatedAt.value
+            : this.serverUpdatedAt,
+        version: version ?? this.version,
+      );
+  Household copyWithCompanion(HouseholdsCompanion data) {
+    return Household(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      name: data.name.present ? data.name.value : this.name,
+      address: data.address.present ? data.address.value : this.address,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      localUpdatedAt: data.localUpdatedAt.present
+          ? data.localUpdatedAt.value
+          : this.localUpdatedAt,
+      serverUpdatedAt: data.serverUpdatedAt.present
+          ? data.serverUpdatedAt.value
+          : this.serverUpdatedAt,
+      version: data.version.present ? data.version.value : this.version,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Household(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('address: $address, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, userId, name, address, createdAt,
+      updatedAt, syncStatus, localUpdatedAt, serverUpdatedAt, version);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Household &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.name == this.name &&
+          other.address == this.address &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.syncStatus == this.syncStatus &&
+          other.localUpdatedAt == this.localUpdatedAt &&
+          other.serverUpdatedAt == this.serverUpdatedAt &&
+          other.version == this.version);
+}
+
+class HouseholdsCompanion extends UpdateCompanion<Household> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> name;
+  final Value<String?> address;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<String> syncStatus;
+  final Value<int> localUpdatedAt;
+  final Value<int?> serverUpdatedAt;
+  final Value<int> version;
+  final Value<int> rowid;
+  const HouseholdsCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.address = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  HouseholdsCompanion.insert({
+    this.id = const Value.absent(),
+    required String userId,
+    required String name,
+    this.address = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : userId = Value(userId),
+        name = Value(name);
+  static Insertable<Household> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? name,
+    Expression<String>? address,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<String>? syncStatus,
+    Expression<int>? localUpdatedAt,
+    Expression<int>? serverUpdatedAt,
+    Expression<int>? version,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (name != null) 'name': name,
+      if (address != null) 'address': address,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (localUpdatedAt != null) 'local_updated_at': localUpdatedAt,
+      if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+      if (version != null) 'version': version,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  HouseholdsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? userId,
+      Value<String>? name,
+      Value<String?>? address,
+      Value<int>? createdAt,
+      Value<int>? updatedAt,
+      Value<String>? syncStatus,
+      Value<int>? localUpdatedAt,
+      Value<int?>? serverUpdatedAt,
+      Value<int>? version,
+      Value<int>? rowid}) {
+    return HouseholdsCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      address: address ?? this.address,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      version: version ?? this.version,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (address.present) {
+      map['address'] = Variable<String>(address.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (localUpdatedAt.present) {
+      map['local_updated_at'] = Variable<int>(localUpdatedAt.value);
+    }
+    if (serverUpdatedAt.present) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HouseholdsCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('address: $address, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PeopleTable extends People with TableInfo<$PeopleTable, Person> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PeopleTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      clientDefault: () => const Uuid().v4());
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+      'user_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _emailMeta = const VerificationMeta('email');
+  @override
+  late final GeneratedColumn<String> email = GeneratedColumn<String>(
+      'email', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _phoneMeta = const VerificationMeta('phone');
+  @override
+  late final GeneratedColumn<String> phone = GeneratedColumn<String>(
+      'phone', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _categoryMeta =
+      const VerificationMeta('category');
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+      'category', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _householdIdMeta =
+      const VerificationMeta('householdId');
+  @override
+  late final GeneratedColumn<String> householdId = GeneratedColumn<String>(
+      'household_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _lastContactDateMeta =
+      const VerificationMeta('lastContactDate');
+  @override
+  late final GeneratedColumn<DateTime> lastContactDate =
+      GeneratedColumn<DateTime>('last_contact_date', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _contactFrequencyOverrideDaysMeta =
+      const VerificationMeta('contactFrequencyOverrideDays');
+  @override
+  late final GeneratedColumn<int> contactFrequencyOverrideDays =
+      GeneratedColumn<int>('contact_frequency_override_days', aliasedName, true,
+          type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+      'notes', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _tagsMeta = const VerificationMeta('tags');
+  @override
+  late final GeneratedColumn<String> tags = GeneratedColumn<String>(
+      'tags', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('[]'));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('pending'));
+  static const VerificationMeta _localUpdatedAtMeta =
+      const VerificationMeta('localUpdatedAt');
+  @override
+  late final GeneratedColumn<int> localUpdatedAt = GeneratedColumn<int>(
+      'local_updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _serverUpdatedAtMeta =
+      const VerificationMeta('serverUpdatedAt');
+  @override
+  late final GeneratedColumn<int> serverUpdatedAt = GeneratedColumn<int>(
+      'server_updated_at', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+      'version', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        userId,
+        name,
+        email,
+        phone,
+        category,
+        householdId,
+        lastContactDate,
+        contactFrequencyOverrideDays,
+        notes,
+        tags,
+        createdAt,
+        updatedAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'people';
+  @override
+  VerificationContext validateIntegrity(Insertable<Person> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('email')) {
+      context.handle(
+          _emailMeta, email.isAcceptableOrUnknown(data['email']!, _emailMeta));
+    }
+    if (data.containsKey('phone')) {
+      context.handle(
+          _phoneMeta, phone.isAcceptableOrUnknown(data['phone']!, _phoneMeta));
+    }
+    if (data.containsKey('category')) {
+      context.handle(_categoryMeta,
+          category.isAcceptableOrUnknown(data['category']!, _categoryMeta));
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('household_id')) {
+      context.handle(
+          _householdIdMeta,
+          householdId.isAcceptableOrUnknown(
+              data['household_id']!, _householdIdMeta));
+    }
+    if (data.containsKey('last_contact_date')) {
+      context.handle(
+          _lastContactDateMeta,
+          lastContactDate.isAcceptableOrUnknown(
+              data['last_contact_date']!, _lastContactDateMeta));
+    }
+    if (data.containsKey('contact_frequency_override_days')) {
+      context.handle(
+          _contactFrequencyOverrideDaysMeta,
+          contactFrequencyOverrideDays.isAcceptableOrUnknown(
+              data['contact_frequency_override_days']!,
+              _contactFrequencyOverrideDaysMeta));
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+          _notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
+    }
+    if (data.containsKey('tags')) {
+      context.handle(
+          _tagsMeta, tags.isAcceptableOrUnknown(data['tags']!, _tagsMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('local_updated_at')) {
+      context.handle(
+          _localUpdatedAtMeta,
+          localUpdatedAt.isAcceptableOrUnknown(
+              data['local_updated_at']!, _localUpdatedAtMeta));
+    }
+    if (data.containsKey('server_updated_at')) {
+      context.handle(
+          _serverUpdatedAtMeta,
+          serverUpdatedAt.isAcceptableOrUnknown(
+              data['server_updated_at']!, _serverUpdatedAtMeta));
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Person map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Person(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}user_id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      email: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}email']),
+      phone: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}phone']),
+      category: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}category'])!,
+      householdId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}household_id']),
+      lastContactDate: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}last_contact_date']),
+      contactFrequencyOverrideDays: attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}contact_frequency_override_days']),
+      notes: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      tags: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}tags'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      localUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}local_updated_at'])!,
+      serverUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}server_updated_at']),
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}version'])!,
+    );
+  }
+
+  @override
+  $PeopleTable createAlias(String alias) {
+    return $PeopleTable(attachedDatabase, alias);
+  }
+}
+
+class Person extends DataClass implements Insertable<Person> {
+  /// Primary key - UUID generated on client
+  /// Uses TEXT in SQLite to store UUID strings
+  /// Must match Supabase UUID format for seamless sync
+  final String id;
+
+  /// Foreign key to users table - establishes multi-tenant isolation
+  /// Every person belongs to exactly one user (the pastor who created it)
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  final String userId;
+
+  /// Person's name - required, non-empty string
+  /// Example: "John Smith", "Mary Johnson", "Rev. David Williams"
+  /// Constraint: Must have at least one non-whitespace character (validated in app layer)
+  final String name;
+
+  /// Optional email address
+  /// Example: "john.smith@example.com"
+  /// Nullable - not all contacts have email
+  final String? email;
+
+  /// Optional phone number
+  /// Example: "(555) 123-4567", "555-123-4567", "+1-555-123-4567"
+  /// Format not enforced - can be stored in any format user prefers
+  /// Nullable - not all contacts have phone
+  final String? phone;
+
+  /// Person category - required field for pastoral care organization
+  /// Valid values (enforced in app layer, matches Supabase CHECK constraint):
+  /// - 'elder': Church elders requiring regular check-ins
+  /// - 'member': Regular church members
+  /// - 'visitor': Visitors to the church
+  /// - 'leadership': Leadership team members
+  /// - 'crisis': People in crisis needing frequent contact
+  /// - 'family': Pastor's family members
+  /// - 'other': Other contacts not fitting above categories
+  ///
+  /// Category enables:
+  /// - Different contact frequency thresholds (from user_settings)
+  /// - Filtered views ("Show all elders", "Show people in crisis")
+  /// - Pastoral care prioritization
+  final String category;
+
+  /// Optional foreign key to households table
+  /// Links person to a family/household grouping
+  /// Use cases:
+  /// - Track entire families together
+  /// - Avoid duplicate pastoral care contacts to same household
+  /// - Organize by family units
+  /// Nullable - not all people belong to tracked households
+  /// ON DELETE SET NULL: If household is deleted, person remains but household link is removed
+  final String? householdId;
+
+  /// Date of most recent contact with this person
+  /// Automatically updated by trigger when contact_log entry is inserted
+  /// Used to:
+  /// - Calculate days since last contact
+  /// - Identify people needing attention (overdue contacts)
+  /// - Dashboard warnings for overdue pastoral care
+  /// Nullable - new contacts may not have been contacted yet
+  final DateTime? lastContactDate;
+
+  /// Override default contact frequency for this specific person (in days)
+  /// Overrides category-based frequency from user_settings
+  /// Example: Elder category default is 30 days, but this specific elder is set to 14 days
+  /// Use cases:
+  /// - People in temporary crisis needing more frequent contact
+  /// - Leaders requiring more frequent check-ins
+  /// - People requesting less frequent contact
+  /// Nullable - uses category default if not overridden
+  /// Constraint: Must be positive integer if set (validated in app layer)
+  final int? contactFrequencyOverrideDays;
+
+  /// Free-form notes about the person
+  /// Can include:
+  /// - Prayer requests
+  /// - Health concerns
+  /// - Family situation
+  /// - Pastoral care context
+  /// - Any other relevant information
+  /// Nullable - not all contacts need notes
+  final String? notes;
+
+  /// Array of tags for flexible organization
+  /// Stored as TEXT in SQLite (JSON-encoded array), TEXT[] in Supabase
+  /// Examples: ["prayer_team", "small_group_leader", "sunday_school"]
+  /// Use cases:
+  /// - Filter by role or involvement
+  /// - Track ministry participation
+  /// - Flexible grouping beyond categories
+  /// Default: empty array
+  /// Note: In Drift/SQLite, this is stored as TEXT and requires JSON encoding/decoding
+  /// The app layer handles conversion between List<String> and JSON string
+  final String tags;
+
+  /// Timestamp when person record was created (Unix milliseconds)
+  /// Automatically set on insert
+  final int createdAt;
+
+  /// Timestamp when person record was last updated (Unix milliseconds)
+  /// Should be updated on every modification
+  /// Used for conflict resolution during sync
+  final int updatedAt;
+
+  /// Sync status: 'synced', 'pending', or 'conflict'
+  /// - synced: Record matches server state exactly
+  /// - pending: Local changes not yet pushed to Supabase (requires sync)
+  /// - conflict: Both local and server have conflicting changes (requires user resolution)
+  ///
+  /// Sync workflow:
+  /// 1. User modifies person -> syncStatus = 'pending'
+  /// 2. Sync engine uploads to Supabase -> syncStatus = 'synced'
+  /// 3. If server has newer version -> syncStatus = 'conflict'
+  /// Default: 'pending' (new people need to be synced)
+  final String syncStatus;
+
+  /// Unix timestamp (milliseconds) when record was last modified locally
+  /// Updated on every local modification
+  /// Used to:
+  /// - Detect local changes that need syncing
+  /// - Order sync operations (oldest changes first)
+  /// - Resolve conflicts (compare with serverUpdatedAt)
+  final int localUpdatedAt;
+
+  /// Unix timestamp (milliseconds) of last known server state
+  /// Updated when successfully synced with Supabase
+  /// Used to:
+  /// - Detect server-side changes during sync
+  /// - Resolve conflicts (if localUpdatedAt > serverUpdatedAt, local wins)
+  /// Nullable - not set until first successful sync
+  final int? serverUpdatedAt;
+
+  /// Version counter for optimistic locking
+  /// Incremented on each update (local or remote)
+  /// Used to:
+  /// - Detect concurrent modifications
+  /// - Prevent lost updates (compare versions before overwriting)
+  /// - Resolve three-way conflicts
+  /// Default: 1 (initial version)
+  final int version;
+  const Person(
+      {required this.id,
+      required this.userId,
+      required this.name,
+      this.email,
+      this.phone,
+      required this.category,
+      this.householdId,
+      this.lastContactDate,
+      this.contactFrequencyOverrideDays,
+      this.notes,
+      required this.tags,
+      required this.createdAt,
+      required this.updatedAt,
+      required this.syncStatus,
+      required this.localUpdatedAt,
+      this.serverUpdatedAt,
+      required this.version});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || email != null) {
+      map['email'] = Variable<String>(email);
+    }
+    if (!nullToAbsent || phone != null) {
+      map['phone'] = Variable<String>(phone);
+    }
+    map['category'] = Variable<String>(category);
+    if (!nullToAbsent || householdId != null) {
+      map['household_id'] = Variable<String>(householdId);
+    }
+    if (!nullToAbsent || lastContactDate != null) {
+      map['last_contact_date'] = Variable<DateTime>(lastContactDate);
+    }
+    if (!nullToAbsent || contactFrequencyOverrideDays != null) {
+      map['contact_frequency_override_days'] =
+          Variable<int>(contactFrequencyOverrideDays);
+    }
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['tags'] = Variable<String>(tags);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['local_updated_at'] = Variable<int>(localUpdatedAt);
+    if (!nullToAbsent || serverUpdatedAt != null) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt);
+    }
+    map['version'] = Variable<int>(version);
+    return map;
+  }
+
+  PeopleCompanion toCompanion(bool nullToAbsent) {
+    return PeopleCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      name: Value(name),
+      email:
+          email == null && nullToAbsent ? const Value.absent() : Value(email),
+      phone:
+          phone == null && nullToAbsent ? const Value.absent() : Value(phone),
+      category: Value(category),
+      householdId: householdId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(householdId),
+      lastContactDate: lastContactDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastContactDate),
+      contactFrequencyOverrideDays:
+          contactFrequencyOverrideDays == null && nullToAbsent
+              ? const Value.absent()
+              : Value(contactFrequencyOverrideDays),
+      notes:
+          notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+      tags: Value(tags),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      syncStatus: Value(syncStatus),
+      localUpdatedAt: Value(localUpdatedAt),
+      serverUpdatedAt: serverUpdatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverUpdatedAt),
+      version: Value(version),
+    );
+  }
+
+  factory Person.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Person(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      name: serializer.fromJson<String>(json['name']),
+      email: serializer.fromJson<String?>(json['email']),
+      phone: serializer.fromJson<String?>(json['phone']),
+      category: serializer.fromJson<String>(json['category']),
+      householdId: serializer.fromJson<String?>(json['householdId']),
+      lastContactDate: serializer.fromJson<DateTime?>(json['lastContactDate']),
+      contactFrequencyOverrideDays:
+          serializer.fromJson<int?>(json['contactFrequencyOverrideDays']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      tags: serializer.fromJson<String>(json['tags']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      localUpdatedAt: serializer.fromJson<int>(json['localUpdatedAt']),
+      serverUpdatedAt: serializer.fromJson<int?>(json['serverUpdatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'name': serializer.toJson<String>(name),
+      'email': serializer.toJson<String?>(email),
+      'phone': serializer.toJson<String?>(phone),
+      'category': serializer.toJson<String>(category),
+      'householdId': serializer.toJson<String?>(householdId),
+      'lastContactDate': serializer.toJson<DateTime?>(lastContactDate),
+      'contactFrequencyOverrideDays':
+          serializer.toJson<int?>(contactFrequencyOverrideDays),
+      'notes': serializer.toJson<String?>(notes),
+      'tags': serializer.toJson<String>(tags),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'localUpdatedAt': serializer.toJson<int>(localUpdatedAt),
+      'serverUpdatedAt': serializer.toJson<int?>(serverUpdatedAt),
+      'version': serializer.toJson<int>(version),
+    };
+  }
+
+  Person copyWith(
+          {String? id,
+          String? userId,
+          String? name,
+          Value<String?> email = const Value.absent(),
+          Value<String?> phone = const Value.absent(),
+          String? category,
+          Value<String?> householdId = const Value.absent(),
+          Value<DateTime?> lastContactDate = const Value.absent(),
+          Value<int?> contactFrequencyOverrideDays = const Value.absent(),
+          Value<String?> notes = const Value.absent(),
+          String? tags,
+          int? createdAt,
+          int? updatedAt,
+          String? syncStatus,
+          int? localUpdatedAt,
+          Value<int?> serverUpdatedAt = const Value.absent(),
+          int? version}) =>
+      Person(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        name: name ?? this.name,
+        email: email.present ? email.value : this.email,
+        phone: phone.present ? phone.value : this.phone,
+        category: category ?? this.category,
+        householdId: householdId.present ? householdId.value : this.householdId,
+        lastContactDate: lastContactDate.present
+            ? lastContactDate.value
+            : this.lastContactDate,
+        contactFrequencyOverrideDays: contactFrequencyOverrideDays.present
+            ? contactFrequencyOverrideDays.value
+            : this.contactFrequencyOverrideDays,
+        notes: notes.present ? notes.value : this.notes,
+        tags: tags ?? this.tags,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        syncStatus: syncStatus ?? this.syncStatus,
+        localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+        serverUpdatedAt: serverUpdatedAt.present
+            ? serverUpdatedAt.value
+            : this.serverUpdatedAt,
+        version: version ?? this.version,
+      );
+  Person copyWithCompanion(PeopleCompanion data) {
+    return Person(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      name: data.name.present ? data.name.value : this.name,
+      email: data.email.present ? data.email.value : this.email,
+      phone: data.phone.present ? data.phone.value : this.phone,
+      category: data.category.present ? data.category.value : this.category,
+      householdId:
+          data.householdId.present ? data.householdId.value : this.householdId,
+      lastContactDate: data.lastContactDate.present
+          ? data.lastContactDate.value
+          : this.lastContactDate,
+      contactFrequencyOverrideDays: data.contactFrequencyOverrideDays.present
+          ? data.contactFrequencyOverrideDays.value
+          : this.contactFrequencyOverrideDays,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      tags: data.tags.present ? data.tags.value : this.tags,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      localUpdatedAt: data.localUpdatedAt.present
+          ? data.localUpdatedAt.value
+          : this.localUpdatedAt,
+      serverUpdatedAt: data.serverUpdatedAt.present
+          ? data.serverUpdatedAt.value
+          : this.serverUpdatedAt,
+      version: data.version.present ? data.version.value : this.version,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Person(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('category: $category, ')
+          ..write('householdId: $householdId, ')
+          ..write('lastContactDate: $lastContactDate, ')
+          ..write(
+              'contactFrequencyOverrideDays: $contactFrequencyOverrideDays, ')
+          ..write('notes: $notes, ')
+          ..write('tags: $tags, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      userId,
+      name,
+      email,
+      phone,
+      category,
+      householdId,
+      lastContactDate,
+      contactFrequencyOverrideDays,
+      notes,
+      tags,
+      createdAt,
+      updatedAt,
+      syncStatus,
+      localUpdatedAt,
+      serverUpdatedAt,
+      version);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Person &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.name == this.name &&
+          other.email == this.email &&
+          other.phone == this.phone &&
+          other.category == this.category &&
+          other.householdId == this.householdId &&
+          other.lastContactDate == this.lastContactDate &&
+          other.contactFrequencyOverrideDays ==
+              this.contactFrequencyOverrideDays &&
+          other.notes == this.notes &&
+          other.tags == this.tags &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.syncStatus == this.syncStatus &&
+          other.localUpdatedAt == this.localUpdatedAt &&
+          other.serverUpdatedAt == this.serverUpdatedAt &&
+          other.version == this.version);
+}
+
+class PeopleCompanion extends UpdateCompanion<Person> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> name;
+  final Value<String?> email;
+  final Value<String?> phone;
+  final Value<String> category;
+  final Value<String?> householdId;
+  final Value<DateTime?> lastContactDate;
+  final Value<int?> contactFrequencyOverrideDays;
+  final Value<String?> notes;
+  final Value<String> tags;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<String> syncStatus;
+  final Value<int> localUpdatedAt;
+  final Value<int?> serverUpdatedAt;
+  final Value<int> version;
+  final Value<int> rowid;
+  const PeopleCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    this.category = const Value.absent(),
+    this.householdId = const Value.absent(),
+    this.lastContactDate = const Value.absent(),
+    this.contactFrequencyOverrideDays = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PeopleCompanion.insert({
+    this.id = const Value.absent(),
+    required String userId,
+    required String name,
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    required String category,
+    this.householdId = const Value.absent(),
+    this.lastContactDate = const Value.absent(),
+    this.contactFrequencyOverrideDays = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : userId = Value(userId),
+        name = Value(name),
+        category = Value(category);
+  static Insertable<Person> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? name,
+    Expression<String>? email,
+    Expression<String>? phone,
+    Expression<String>? category,
+    Expression<String>? householdId,
+    Expression<DateTime>? lastContactDate,
+    Expression<int>? contactFrequencyOverrideDays,
+    Expression<String>? notes,
+    Expression<String>? tags,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<String>? syncStatus,
+    Expression<int>? localUpdatedAt,
+    Expression<int>? serverUpdatedAt,
+    Expression<int>? version,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (name != null) 'name': name,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (category != null) 'category': category,
+      if (householdId != null) 'household_id': householdId,
+      if (lastContactDate != null) 'last_contact_date': lastContactDate,
+      if (contactFrequencyOverrideDays != null)
+        'contact_frequency_override_days': contactFrequencyOverrideDays,
+      if (notes != null) 'notes': notes,
+      if (tags != null) 'tags': tags,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (localUpdatedAt != null) 'local_updated_at': localUpdatedAt,
+      if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+      if (version != null) 'version': version,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PeopleCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? userId,
+      Value<String>? name,
+      Value<String?>? email,
+      Value<String?>? phone,
+      Value<String>? category,
+      Value<String?>? householdId,
+      Value<DateTime?>? lastContactDate,
+      Value<int?>? contactFrequencyOverrideDays,
+      Value<String?>? notes,
+      Value<String>? tags,
+      Value<int>? createdAt,
+      Value<int>? updatedAt,
+      Value<String>? syncStatus,
+      Value<int>? localUpdatedAt,
+      Value<int?>? serverUpdatedAt,
+      Value<int>? version,
+      Value<int>? rowid}) {
+    return PeopleCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      category: category ?? this.category,
+      householdId: householdId ?? this.householdId,
+      lastContactDate: lastContactDate ?? this.lastContactDate,
+      contactFrequencyOverrideDays:
+          contactFrequencyOverrideDays ?? this.contactFrequencyOverrideDays,
+      notes: notes ?? this.notes,
+      tags: tags ?? this.tags,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      version: version ?? this.version,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (email.present) {
+      map['email'] = Variable<String>(email.value);
+    }
+    if (phone.present) {
+      map['phone'] = Variable<String>(phone.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (householdId.present) {
+      map['household_id'] = Variable<String>(householdId.value);
+    }
+    if (lastContactDate.present) {
+      map['last_contact_date'] = Variable<DateTime>(lastContactDate.value);
+    }
+    if (contactFrequencyOverrideDays.present) {
+      map['contact_frequency_override_days'] =
+          Variable<int>(contactFrequencyOverrideDays.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (tags.present) {
+      map['tags'] = Variable<String>(tags.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (localUpdatedAt.present) {
+      map['local_updated_at'] = Variable<int>(localUpdatedAt.value);
+    }
+    if (serverUpdatedAt.present) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeopleCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('category: $category, ')
+          ..write('householdId: $householdId, ')
+          ..write('lastContactDate: $lastContactDate, ')
+          ..write(
+              'contactFrequencyOverrideDays: $contactFrequencyOverrideDays, ')
+          ..write('notes: $notes, ')
+          ..write('tags: $tags, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PeopleMilestonesTable extends PeopleMilestones
+    with TableInfo<$PeopleMilestonesTable, PeopleMilestone> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PeopleMilestonesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      clientDefault: () => const Uuid().v4());
+  static const VerificationMeta _personIdMeta =
+      const VerificationMeta('personId');
+  @override
+  late final GeneratedColumn<String> personId = GeneratedColumn<String>(
+      'person_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _milestoneTypeMeta =
+      const VerificationMeta('milestoneType');
+  @override
+  late final GeneratedColumn<String> milestoneType = GeneratedColumn<String>(
+      'milestone_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
+  @override
+  late final GeneratedColumn<DateTime> date = GeneratedColumn<DateTime>(
+      'date', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _descriptionMeta =
+      const VerificationMeta('description');
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+      'description', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _notifyDaysBeforeMeta =
+      const VerificationMeta('notifyDaysBefore');
+  @override
+  late final GeneratedColumn<int> notifyDaysBefore = GeneratedColumn<int>(
+      'notify_days_before', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(2));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('pending'));
+  static const VerificationMeta _localUpdatedAtMeta =
+      const VerificationMeta('localUpdatedAt');
+  @override
+  late final GeneratedColumn<int> localUpdatedAt = GeneratedColumn<int>(
+      'local_updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _serverUpdatedAtMeta =
+      const VerificationMeta('serverUpdatedAt');
+  @override
+  late final GeneratedColumn<int> serverUpdatedAt = GeneratedColumn<int>(
+      'server_updated_at', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+      'version', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        personId,
+        milestoneType,
+        date,
+        description,
+        notifyDaysBefore,
+        createdAt,
+        updatedAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'people_milestones';
+  @override
+  VerificationContext validateIntegrity(Insertable<PeopleMilestone> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('person_id')) {
+      context.handle(_personIdMeta,
+          personId.isAcceptableOrUnknown(data['person_id']!, _personIdMeta));
+    } else if (isInserting) {
+      context.missing(_personIdMeta);
+    }
+    if (data.containsKey('milestone_type')) {
+      context.handle(
+          _milestoneTypeMeta,
+          milestoneType.isAcceptableOrUnknown(
+              data['milestone_type']!, _milestoneTypeMeta));
+    } else if (isInserting) {
+      context.missing(_milestoneTypeMeta);
+    }
+    if (data.containsKey('date')) {
+      context.handle(
+          _dateMeta, date.isAcceptableOrUnknown(data['date']!, _dateMeta));
+    } else if (isInserting) {
+      context.missing(_dateMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+          _descriptionMeta,
+          description.isAcceptableOrUnknown(
+              data['description']!, _descriptionMeta));
+    }
+    if (data.containsKey('notify_days_before')) {
+      context.handle(
+          _notifyDaysBeforeMeta,
+          notifyDaysBefore.isAcceptableOrUnknown(
+              data['notify_days_before']!, _notifyDaysBeforeMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('local_updated_at')) {
+      context.handle(
+          _localUpdatedAtMeta,
+          localUpdatedAt.isAcceptableOrUnknown(
+              data['local_updated_at']!, _localUpdatedAtMeta));
+    }
+    if (data.containsKey('server_updated_at')) {
+      context.handle(
+          _serverUpdatedAtMeta,
+          serverUpdatedAt.isAcceptableOrUnknown(
+              data['server_updated_at']!, _serverUpdatedAtMeta));
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PeopleMilestone map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PeopleMilestone(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      personId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}person_id'])!,
+      milestoneType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}milestone_type'])!,
+      date: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}date'])!,
+      description: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}description']),
+      notifyDaysBefore: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}notify_days_before'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      localUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}local_updated_at'])!,
+      serverUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}server_updated_at']),
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}version'])!,
+    );
+  }
+
+  @override
+  $PeopleMilestonesTable createAlias(String alias) {
+    return $PeopleMilestonesTable(attachedDatabase, alias);
+  }
+}
+
+class PeopleMilestone extends DataClass implements Insertable<PeopleMilestone> {
+  /// Primary key - UUID generated on client
+  /// Uses TEXT in SQLite to store UUID strings
+  /// Must match Supabase UUID format for seamless sync
+  final String id;
+
+  /// Foreign key to people table
+  /// Every milestone belongs to exactly one person
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// ON DELETE CASCADE: When person is deleted, their milestones are also deleted
+  final String personId;
+
+  /// Milestone type - required field for categorization
+  /// Valid values (enforced in app layer, matches Supabase CHECK constraint):
+  /// - 'birthday': Person's birthday (recurring annually)
+  /// - 'anniversary': Wedding anniversary or other anniversary (recurring annually)
+  /// - 'surgery': Scheduled surgery date (one-time event)
+  /// - 'other': Other important dates
+  ///
+  /// Type affects notification behavior:
+  /// - birthday/anniversary: Recurring notifications every year
+  /// - surgery/other: One-time notifications
+  final String milestoneType;
+
+  /// Date of the milestone
+  /// For recurring events (birthday, anniversary), only month and day are significant
+  /// For one-time events (surgery), full date is used
+  /// Example: Birthday on March 15 stored as "YYYY-03-15" (year can be birth year or arbitrary)
+  final DateTime date;
+
+  /// Optional description of the milestone
+  /// Provides context for the milestone
+  /// Examples:
+  /// - "80th birthday - planning celebration"
+  /// - "Knee replacement surgery at St. Mary's Hospital"
+  /// - "25th wedding anniversary"
+  /// Nullable - simple milestones may not need description
+  final String? description;
+
+  /// Days before milestone to trigger notification
+  /// Allows pastor to plan ahead for pastoral care
+  /// Examples:
+  /// - Birthday: 2 days before (send card)
+  /// - Surgery: 7 days before (schedule visit)
+  /// - Anniversary: 1 week before (plan recognition)
+  /// Default: 2 days
+  /// Constraint: Must be non-negative if set (validated in app layer)
+  final int notifyDaysBefore;
+
+  /// Timestamp when milestone record was created (Unix milliseconds)
+  /// Automatically set on insert
+  final int createdAt;
+
+  /// Timestamp when milestone record was last updated (Unix milliseconds)
+  /// Should be updated on every modification
+  /// Used for conflict resolution during sync
+  final int updatedAt;
+
+  /// Sync status: 'synced', 'pending', or 'conflict'
+  /// - synced: Record matches server state exactly
+  /// - pending: Local changes not yet pushed to Supabase (requires sync)
+  /// - conflict: Both local and server have conflicting changes (requires user resolution)
+  ///
+  /// Sync workflow:
+  /// 1. User modifies milestone -> syncStatus = 'pending'
+  /// 2. Sync engine uploads to Supabase -> syncStatus = 'synced'
+  /// 3. If server has newer version -> syncStatus = 'conflict'
+  /// Default: 'pending' (new milestones need to be synced)
+  final String syncStatus;
+
+  /// Unix timestamp (milliseconds) when record was last modified locally
+  /// Updated on every local modification
+  /// Used to:
+  /// - Detect local changes that need syncing
+  /// - Order sync operations (oldest changes first)
+  /// - Resolve conflicts (compare with serverUpdatedAt)
+  final int localUpdatedAt;
+
+  /// Unix timestamp (milliseconds) of last known server state
+  /// Updated when successfully synced with Supabase
+  /// Used to:
+  /// - Detect server-side changes during sync
+  /// - Resolve conflicts (if localUpdatedAt > serverUpdatedAt, local wins)
+  /// Nullable - not set until first successful sync
+  final int? serverUpdatedAt;
+
+  /// Version counter for optimistic locking
+  /// Incremented on each update (local or remote)
+  /// Used to:
+  /// - Detect concurrent modifications
+  /// - Prevent lost updates (compare versions before overwriting)
+  /// - Resolve three-way conflicts
+  /// Default: 1 (initial version)
+  final int version;
+  const PeopleMilestone(
+      {required this.id,
+      required this.personId,
+      required this.milestoneType,
+      required this.date,
+      this.description,
+      required this.notifyDaysBefore,
+      required this.createdAt,
+      required this.updatedAt,
+      required this.syncStatus,
+      required this.localUpdatedAt,
+      this.serverUpdatedAt,
+      required this.version});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['person_id'] = Variable<String>(personId);
+    map['milestone_type'] = Variable<String>(milestoneType);
+    map['date'] = Variable<DateTime>(date);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['notify_days_before'] = Variable<int>(notifyDaysBefore);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['local_updated_at'] = Variable<int>(localUpdatedAt);
+    if (!nullToAbsent || serverUpdatedAt != null) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt);
+    }
+    map['version'] = Variable<int>(version);
+    return map;
+  }
+
+  PeopleMilestonesCompanion toCompanion(bool nullToAbsent) {
+    return PeopleMilestonesCompanion(
+      id: Value(id),
+      personId: Value(personId),
+      milestoneType: Value(milestoneType),
+      date: Value(date),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      notifyDaysBefore: Value(notifyDaysBefore),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      syncStatus: Value(syncStatus),
+      localUpdatedAt: Value(localUpdatedAt),
+      serverUpdatedAt: serverUpdatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverUpdatedAt),
+      version: Value(version),
+    );
+  }
+
+  factory PeopleMilestone.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PeopleMilestone(
+      id: serializer.fromJson<String>(json['id']),
+      personId: serializer.fromJson<String>(json['personId']),
+      milestoneType: serializer.fromJson<String>(json['milestoneType']),
+      date: serializer.fromJson<DateTime>(json['date']),
+      description: serializer.fromJson<String?>(json['description']),
+      notifyDaysBefore: serializer.fromJson<int>(json['notifyDaysBefore']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      localUpdatedAt: serializer.fromJson<int>(json['localUpdatedAt']),
+      serverUpdatedAt: serializer.fromJson<int?>(json['serverUpdatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'personId': serializer.toJson<String>(personId),
+      'milestoneType': serializer.toJson<String>(milestoneType),
+      'date': serializer.toJson<DateTime>(date),
+      'description': serializer.toJson<String?>(description),
+      'notifyDaysBefore': serializer.toJson<int>(notifyDaysBefore),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'localUpdatedAt': serializer.toJson<int>(localUpdatedAt),
+      'serverUpdatedAt': serializer.toJson<int?>(serverUpdatedAt),
+      'version': serializer.toJson<int>(version),
+    };
+  }
+
+  PeopleMilestone copyWith(
+          {String? id,
+          String? personId,
+          String? milestoneType,
+          DateTime? date,
+          Value<String?> description = const Value.absent(),
+          int? notifyDaysBefore,
+          int? createdAt,
+          int? updatedAt,
+          String? syncStatus,
+          int? localUpdatedAt,
+          Value<int?> serverUpdatedAt = const Value.absent(),
+          int? version}) =>
+      PeopleMilestone(
+        id: id ?? this.id,
+        personId: personId ?? this.personId,
+        milestoneType: milestoneType ?? this.milestoneType,
+        date: date ?? this.date,
+        description: description.present ? description.value : this.description,
+        notifyDaysBefore: notifyDaysBefore ?? this.notifyDaysBefore,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        syncStatus: syncStatus ?? this.syncStatus,
+        localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+        serverUpdatedAt: serverUpdatedAt.present
+            ? serverUpdatedAt.value
+            : this.serverUpdatedAt,
+        version: version ?? this.version,
+      );
+  PeopleMilestone copyWithCompanion(PeopleMilestonesCompanion data) {
+    return PeopleMilestone(
+      id: data.id.present ? data.id.value : this.id,
+      personId: data.personId.present ? data.personId.value : this.personId,
+      milestoneType: data.milestoneType.present
+          ? data.milestoneType.value
+          : this.milestoneType,
+      date: data.date.present ? data.date.value : this.date,
+      description:
+          data.description.present ? data.description.value : this.description,
+      notifyDaysBefore: data.notifyDaysBefore.present
+          ? data.notifyDaysBefore.value
+          : this.notifyDaysBefore,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      localUpdatedAt: data.localUpdatedAt.present
+          ? data.localUpdatedAt.value
+          : this.localUpdatedAt,
+      serverUpdatedAt: data.serverUpdatedAt.present
+          ? data.serverUpdatedAt.value
+          : this.serverUpdatedAt,
+      version: data.version.present ? data.version.value : this.version,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeopleMilestone(')
+          ..write('id: $id, ')
+          ..write('personId: $personId, ')
+          ..write('milestoneType: $milestoneType, ')
+          ..write('date: $date, ')
+          ..write('description: $description, ')
+          ..write('notifyDaysBefore: $notifyDaysBefore, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      personId,
+      milestoneType,
+      date,
+      description,
+      notifyDaysBefore,
+      createdAt,
+      updatedAt,
+      syncStatus,
+      localUpdatedAt,
+      serverUpdatedAt,
+      version);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PeopleMilestone &&
+          other.id == this.id &&
+          other.personId == this.personId &&
+          other.milestoneType == this.milestoneType &&
+          other.date == this.date &&
+          other.description == this.description &&
+          other.notifyDaysBefore == this.notifyDaysBefore &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.syncStatus == this.syncStatus &&
+          other.localUpdatedAt == this.localUpdatedAt &&
+          other.serverUpdatedAt == this.serverUpdatedAt &&
+          other.version == this.version);
+}
+
+class PeopleMilestonesCompanion extends UpdateCompanion<PeopleMilestone> {
+  final Value<String> id;
+  final Value<String> personId;
+  final Value<String> milestoneType;
+  final Value<DateTime> date;
+  final Value<String?> description;
+  final Value<int> notifyDaysBefore;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<String> syncStatus;
+  final Value<int> localUpdatedAt;
+  final Value<int?> serverUpdatedAt;
+  final Value<int> version;
+  final Value<int> rowid;
+  const PeopleMilestonesCompanion({
+    this.id = const Value.absent(),
+    this.personId = const Value.absent(),
+    this.milestoneType = const Value.absent(),
+    this.date = const Value.absent(),
+    this.description = const Value.absent(),
+    this.notifyDaysBefore = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PeopleMilestonesCompanion.insert({
+    this.id = const Value.absent(),
+    required String personId,
+    required String milestoneType,
+    required DateTime date,
+    this.description = const Value.absent(),
+    this.notifyDaysBefore = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : personId = Value(personId),
+        milestoneType = Value(milestoneType),
+        date = Value(date);
+  static Insertable<PeopleMilestone> custom({
+    Expression<String>? id,
+    Expression<String>? personId,
+    Expression<String>? milestoneType,
+    Expression<DateTime>? date,
+    Expression<String>? description,
+    Expression<int>? notifyDaysBefore,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<String>? syncStatus,
+    Expression<int>? localUpdatedAt,
+    Expression<int>? serverUpdatedAt,
+    Expression<int>? version,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (personId != null) 'person_id': personId,
+      if (milestoneType != null) 'milestone_type': milestoneType,
+      if (date != null) 'date': date,
+      if (description != null) 'description': description,
+      if (notifyDaysBefore != null) 'notify_days_before': notifyDaysBefore,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (localUpdatedAt != null) 'local_updated_at': localUpdatedAt,
+      if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+      if (version != null) 'version': version,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PeopleMilestonesCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? personId,
+      Value<String>? milestoneType,
+      Value<DateTime>? date,
+      Value<String?>? description,
+      Value<int>? notifyDaysBefore,
+      Value<int>? createdAt,
+      Value<int>? updatedAt,
+      Value<String>? syncStatus,
+      Value<int>? localUpdatedAt,
+      Value<int?>? serverUpdatedAt,
+      Value<int>? version,
+      Value<int>? rowid}) {
+    return PeopleMilestonesCompanion(
+      id: id ?? this.id,
+      personId: personId ?? this.personId,
+      milestoneType: milestoneType ?? this.milestoneType,
+      date: date ?? this.date,
+      description: description ?? this.description,
+      notifyDaysBefore: notifyDaysBefore ?? this.notifyDaysBefore,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      version: version ?? this.version,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (personId.present) {
+      map['person_id'] = Variable<String>(personId.value);
+    }
+    if (milestoneType.present) {
+      map['milestone_type'] = Variable<String>(milestoneType.value);
+    }
+    if (date.present) {
+      map['date'] = Variable<DateTime>(date.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (notifyDaysBefore.present) {
+      map['notify_days_before'] = Variable<int>(notifyDaysBefore.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (localUpdatedAt.present) {
+      map['local_updated_at'] = Variable<int>(localUpdatedAt.value);
+    }
+    if (serverUpdatedAt.present) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeopleMilestonesCompanion(')
+          ..write('id: $id, ')
+          ..write('personId: $personId, ')
+          ..write('milestoneType: $milestoneType, ')
+          ..write('date: $date, ')
+          ..write('description: $description, ')
+          ..write('notifyDaysBefore: $notifyDaysBefore, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ContactLogTableTable extends ContactLogTable
+    with TableInfo<$ContactLogTableTable, ContactLog> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ContactLogTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      clientDefault: () => const Uuid().v4());
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+      'user_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _personIdMeta =
+      const VerificationMeta('personId');
+  @override
+  late final GeneratedColumn<String> personId = GeneratedColumn<String>(
+      'person_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contactDateMeta =
+      const VerificationMeta('contactDate');
+  @override
+  late final GeneratedColumn<DateTime> contactDate = GeneratedColumn<DateTime>(
+      'contact_date', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _contactTypeMeta =
+      const VerificationMeta('contactType');
+  @override
+  late final GeneratedColumn<String> contactType = GeneratedColumn<String>(
+      'contact_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _durationMinutesMeta =
+      const VerificationMeta('durationMinutes');
+  @override
+  late final GeneratedColumn<int> durationMinutes = GeneratedColumn<int>(
+      'duration_minutes', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+      'notes', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('pending'));
+  static const VerificationMeta _localUpdatedAtMeta =
+      const VerificationMeta('localUpdatedAt');
+  @override
+  late final GeneratedColumn<int> localUpdatedAt = GeneratedColumn<int>(
+      'local_updated_at', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      clientDefault: () => DateTime.now().millisecondsSinceEpoch);
+  static const VerificationMeta _serverUpdatedAtMeta =
+      const VerificationMeta('serverUpdatedAt');
+  @override
+  late final GeneratedColumn<int> serverUpdatedAt = GeneratedColumn<int>(
+      'server_updated_at', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+      'version', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        userId,
+        personId,
+        contactDate,
+        contactType,
+        durationMinutes,
+        notes,
+        createdAt,
+        syncStatus,
+        localUpdatedAt,
+        serverUpdatedAt,
+        version
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'contact_log';
+  @override
+  VerificationContext validateIntegrity(Insertable<ContactLog> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('person_id')) {
+      context.handle(_personIdMeta,
+          personId.isAcceptableOrUnknown(data['person_id']!, _personIdMeta));
+    } else if (isInserting) {
+      context.missing(_personIdMeta);
+    }
+    if (data.containsKey('contact_date')) {
+      context.handle(
+          _contactDateMeta,
+          contactDate.isAcceptableOrUnknown(
+              data['contact_date']!, _contactDateMeta));
+    } else if (isInserting) {
+      context.missing(_contactDateMeta);
+    }
+    if (data.containsKey('contact_type')) {
+      context.handle(
+          _contactTypeMeta,
+          contactType.isAcceptableOrUnknown(
+              data['contact_type']!, _contactTypeMeta));
+    } else if (isInserting) {
+      context.missing(_contactTypeMeta);
+    }
+    if (data.containsKey('duration_minutes')) {
+      context.handle(
+          _durationMinutesMeta,
+          durationMinutes.isAcceptableOrUnknown(
+              data['duration_minutes']!, _durationMinutesMeta));
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+          _notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('local_updated_at')) {
+      context.handle(
+          _localUpdatedAtMeta,
+          localUpdatedAt.isAcceptableOrUnknown(
+              data['local_updated_at']!, _localUpdatedAtMeta));
+    }
+    if (data.containsKey('server_updated_at')) {
+      context.handle(
+          _serverUpdatedAtMeta,
+          serverUpdatedAt.isAcceptableOrUnknown(
+              data['server_updated_at']!, _serverUpdatedAtMeta));
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ContactLog map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ContactLog(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}user_id'])!,
+      personId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}person_id'])!,
+      contactDate: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}contact_date'])!,
+      contactType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}contact_type'])!,
+      durationMinutes: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}duration_minutes']),
+      notes: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      localUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}local_updated_at'])!,
+      serverUpdatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}server_updated_at']),
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}version'])!,
+    );
+  }
+
+  @override
+  $ContactLogTableTable createAlias(String alias) {
+    return $ContactLogTableTable(attachedDatabase, alias);
+  }
+}
+
+class ContactLog extends DataClass implements Insertable<ContactLog> {
+  /// Primary key - UUID generated on client
+  /// Uses TEXT in SQLite to store UUID strings
+  /// Must match Supabase UUID format for seamless sync
+  final String id;
+
+  /// Foreign key to users table - establishes multi-tenant isolation
+  /// Every contact log belongs to exactly one user (the pastor who logged it)
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  final String userId;
+
+  /// Foreign key to people table
+  /// Every contact log belongs to exactly one person
+  /// ON DELETE CASCADE: When person is deleted, their contact logs are also deleted
+  final String personId;
+
+  /// Date of the contact (DATE only, no time component)
+  /// Used for:
+  /// - Updating people.last_contact_date
+  /// - Calculating days since last contact
+  /// - Contact frequency analysis
+  /// Example: 2025-12-09 (time portion not significant)
+  final DateTime contactDate;
+
+  /// Type of contact - required field for categorization
+  /// Valid values (enforced in app layer, matches Supabase CHECK constraint):
+  /// - 'visit': Home visit, hospital visit, etc.
+  /// - 'call': Phone call
+  /// - 'email': Email correspondence
+  /// - 'text': Text message/SMS
+  /// - 'in_person': In-person meeting (at church, office, etc.)
+  /// - 'other': Other contact types
+  ///
+  /// Type affects:
+  /// - Contact statistics and reporting
+  /// - Contact method preferences analysis
+  /// - Time tracking (some types typically take longer)
+  final String contactType;
+
+  /// Optional duration of the contact (in minutes)
+  /// Useful for:
+  /// - Time tracking and analysis
+  /// - Workload reporting
+  /// - Understanding time investment per person
+  /// Examples:
+  /// - Phone call: 15 minutes
+  /// - Home visit: 60 minutes
+  /// - Hospital visit: 45 minutes
+  /// Nullable - not all contacts have tracked duration
+  /// Constraint: Must be positive if set (validated in app layer)
+  final int? durationMinutes;
+
+  /// Optional notes about the contact
+  /// Can include:
+  /// - Summary of conversation
+  /// - Prayer requests mentioned
+  /// - Follow-up actions needed
+  /// - Context for next contact
+  /// Nullable - quick contacts may not need notes
+  final String? notes;
+
+  /// Timestamp when contact log was created (Unix milliseconds)
+  /// Automatically set on insert
+  /// Note: Contact logs are immutable - no updated_at field
+  /// Once logged, contacts shouldn't be modified (audit trail)
+  final int createdAt;
+
+  /// Sync status: 'synced', 'pending', or 'conflict'
+  /// - synced: Record matches server state exactly
+  /// - pending: Local changes not yet pushed to Supabase (requires sync)
+  /// - conflict: Both local and server have conflicting changes (requires user resolution)
+  ///
+  /// Sync workflow:
+  /// 1. User logs contact -> syncStatus = 'pending'
+  /// 2. Sync engine uploads to Supabase -> syncStatus = 'synced'
+  /// 3. If server has newer version -> syncStatus = 'conflict'
+  /// Default: 'pending' (new contact logs need to be synced)
+  final String syncStatus;
+
+  /// Unix timestamp (milliseconds) when record was last modified locally
+  /// For contact logs (immutable), this is the same as createdAt
+  /// Kept for consistency with other tables' sync patterns
+  final int localUpdatedAt;
+
+  /// Unix timestamp (milliseconds) of last known server state
+  /// Updated when successfully synced with Supabase
+  /// Used to:
+  /// - Detect server-side changes during sync
+  /// - Resolve conflicts (if localUpdatedAt > serverUpdatedAt, local wins)
+  /// Nullable - not set until first successful sync
+  final int? serverUpdatedAt;
+
+  /// Version counter for optimistic locking
+  /// Incremented on each update (local or remote)
+  /// Used to:
+  /// - Detect concurrent modifications
+  /// - Prevent lost updates (compare versions before overwriting)
+  /// - Resolve three-way conflicts
+  /// Default: 1 (initial version)
+  /// Note: For immutable contact logs, version should always be 1
+  final int version;
+  const ContactLog(
+      {required this.id,
+      required this.userId,
+      required this.personId,
+      required this.contactDate,
+      required this.contactType,
+      this.durationMinutes,
+      this.notes,
+      required this.createdAt,
+      required this.syncStatus,
+      required this.localUpdatedAt,
+      this.serverUpdatedAt,
+      required this.version});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['person_id'] = Variable<String>(personId);
+    map['contact_date'] = Variable<DateTime>(contactDate);
+    map['contact_type'] = Variable<String>(contactType);
+    if (!nullToAbsent || durationMinutes != null) {
+      map['duration_minutes'] = Variable<int>(durationMinutes);
+    }
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['local_updated_at'] = Variable<int>(localUpdatedAt);
+    if (!nullToAbsent || serverUpdatedAt != null) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt);
+    }
+    map['version'] = Variable<int>(version);
+    return map;
+  }
+
+  ContactLogTableCompanion toCompanion(bool nullToAbsent) {
+    return ContactLogTableCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      personId: Value(personId),
+      contactDate: Value(contactDate),
+      contactType: Value(contactType),
+      durationMinutes: durationMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(durationMinutes),
+      notes:
+          notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+      createdAt: Value(createdAt),
+      syncStatus: Value(syncStatus),
+      localUpdatedAt: Value(localUpdatedAt),
+      serverUpdatedAt: serverUpdatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverUpdatedAt),
+      version: Value(version),
+    );
+  }
+
+  factory ContactLog.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ContactLog(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      personId: serializer.fromJson<String>(json['personId']),
+      contactDate: serializer.fromJson<DateTime>(json['contactDate']),
+      contactType: serializer.fromJson<String>(json['contactType']),
+      durationMinutes: serializer.fromJson<int?>(json['durationMinutes']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      localUpdatedAt: serializer.fromJson<int>(json['localUpdatedAt']),
+      serverUpdatedAt: serializer.fromJson<int?>(json['serverUpdatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'personId': serializer.toJson<String>(personId),
+      'contactDate': serializer.toJson<DateTime>(contactDate),
+      'contactType': serializer.toJson<String>(contactType),
+      'durationMinutes': serializer.toJson<int?>(durationMinutes),
+      'notes': serializer.toJson<String?>(notes),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'localUpdatedAt': serializer.toJson<int>(localUpdatedAt),
+      'serverUpdatedAt': serializer.toJson<int?>(serverUpdatedAt),
+      'version': serializer.toJson<int>(version),
+    };
+  }
+
+  ContactLog copyWith(
+          {String? id,
+          String? userId,
+          String? personId,
+          DateTime? contactDate,
+          String? contactType,
+          Value<int?> durationMinutes = const Value.absent(),
+          Value<String?> notes = const Value.absent(),
+          int? createdAt,
+          String? syncStatus,
+          int? localUpdatedAt,
+          Value<int?> serverUpdatedAt = const Value.absent(),
+          int? version}) =>
+      ContactLog(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        personId: personId ?? this.personId,
+        contactDate: contactDate ?? this.contactDate,
+        contactType: contactType ?? this.contactType,
+        durationMinutes: durationMinutes.present
+            ? durationMinutes.value
+            : this.durationMinutes,
+        notes: notes.present ? notes.value : this.notes,
+        createdAt: createdAt ?? this.createdAt,
+        syncStatus: syncStatus ?? this.syncStatus,
+        localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+        serverUpdatedAt: serverUpdatedAt.present
+            ? serverUpdatedAt.value
+            : this.serverUpdatedAt,
+        version: version ?? this.version,
+      );
+  ContactLog copyWithCompanion(ContactLogTableCompanion data) {
+    return ContactLog(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      personId: data.personId.present ? data.personId.value : this.personId,
+      contactDate:
+          data.contactDate.present ? data.contactDate.value : this.contactDate,
+      contactType:
+          data.contactType.present ? data.contactType.value : this.contactType,
+      durationMinutes: data.durationMinutes.present
+          ? data.durationMinutes.value
+          : this.durationMinutes,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      localUpdatedAt: data.localUpdatedAt.present
+          ? data.localUpdatedAt.value
+          : this.localUpdatedAt,
+      serverUpdatedAt: data.serverUpdatedAt.present
+          ? data.serverUpdatedAt.value
+          : this.serverUpdatedAt,
+      version: data.version.present ? data.version.value : this.version,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ContactLog(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('personId: $personId, ')
+          ..write('contactDate: $contactDate, ')
+          ..write('contactType: $contactType, ')
+          ..write('durationMinutes: $durationMinutes, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      userId,
+      personId,
+      contactDate,
+      contactType,
+      durationMinutes,
+      notes,
+      createdAt,
+      syncStatus,
+      localUpdatedAt,
+      serverUpdatedAt,
+      version);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ContactLog &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.personId == this.personId &&
+          other.contactDate == this.contactDate &&
+          other.contactType == this.contactType &&
+          other.durationMinutes == this.durationMinutes &&
+          other.notes == this.notes &&
+          other.createdAt == this.createdAt &&
+          other.syncStatus == this.syncStatus &&
+          other.localUpdatedAt == this.localUpdatedAt &&
+          other.serverUpdatedAt == this.serverUpdatedAt &&
+          other.version == this.version);
+}
+
+class ContactLogTableCompanion extends UpdateCompanion<ContactLog> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> personId;
+  final Value<DateTime> contactDate;
+  final Value<String> contactType;
+  final Value<int?> durationMinutes;
+  final Value<String?> notes;
+  final Value<int> createdAt;
+  final Value<String> syncStatus;
+  final Value<int> localUpdatedAt;
+  final Value<int?> serverUpdatedAt;
+  final Value<int> version;
+  final Value<int> rowid;
+  const ContactLogTableCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.personId = const Value.absent(),
+    this.contactDate = const Value.absent(),
+    this.contactType = const Value.absent(),
+    this.durationMinutes = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ContactLogTableCompanion.insert({
+    this.id = const Value.absent(),
+    required String userId,
+    required String personId,
+    required DateTime contactDate,
+    required String contactType,
+    this.durationMinutes = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.localUpdatedAt = const Value.absent(),
+    this.serverUpdatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : userId = Value(userId),
+        personId = Value(personId),
+        contactDate = Value(contactDate),
+        contactType = Value(contactType);
+  static Insertable<ContactLog> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? personId,
+    Expression<DateTime>? contactDate,
+    Expression<String>? contactType,
+    Expression<int>? durationMinutes,
+    Expression<String>? notes,
+    Expression<int>? createdAt,
+    Expression<String>? syncStatus,
+    Expression<int>? localUpdatedAt,
+    Expression<int>? serverUpdatedAt,
+    Expression<int>? version,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (personId != null) 'person_id': personId,
+      if (contactDate != null) 'contact_date': contactDate,
+      if (contactType != null) 'contact_type': contactType,
+      if (durationMinutes != null) 'duration_minutes': durationMinutes,
+      if (notes != null) 'notes': notes,
+      if (createdAt != null) 'created_at': createdAt,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (localUpdatedAt != null) 'local_updated_at': localUpdatedAt,
+      if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+      if (version != null) 'version': version,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ContactLogTableCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? userId,
+      Value<String>? personId,
+      Value<DateTime>? contactDate,
+      Value<String>? contactType,
+      Value<int?>? durationMinutes,
+      Value<String?>? notes,
+      Value<int>? createdAt,
+      Value<String>? syncStatus,
+      Value<int>? localUpdatedAt,
+      Value<int?>? serverUpdatedAt,
+      Value<int>? version,
+      Value<int>? rowid}) {
+    return ContactLogTableCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      personId: personId ?? this.personId,
+      contactDate: contactDate ?? this.contactDate,
+      contactType: contactType ?? this.contactType,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      version: version ?? this.version,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (personId.present) {
+      map['person_id'] = Variable<String>(personId.value);
+    }
+    if (contactDate.present) {
+      map['contact_date'] = Variable<DateTime>(contactDate.value);
+    }
+    if (contactType.present) {
+      map['contact_type'] = Variable<String>(contactType.value);
+    }
+    if (durationMinutes.present) {
+      map['duration_minutes'] = Variable<int>(durationMinutes.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (localUpdatedAt.present) {
+      map['local_updated_at'] = Variable<int>(localUpdatedAt.value);
+    }
+    if (serverUpdatedAt.present) {
+      map['server_updated_at'] = Variable<int>(serverUpdatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ContactLogTableCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('personId: $personId, ')
+          ..write('contactDate: $contactDate, ')
+          ..write('contactType: $contactType, ')
+          ..write('durationMinutes: $durationMinutes, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('localUpdatedAt: $localUpdatedAt, ')
+          ..write('serverUpdatedAt: $serverUpdatedAt, ')
+          ..write('version: $version, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3646,32 +7751,36 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $UserSettingsTable userSettings = $UserSettingsTable(this);
   late final $SyncQueueTable syncQueue = $SyncQueueTable(this);
   late final $TasksTable tasks = $TasksTable(this);
+  late final $CalendarEventsTable calendarEvents = $CalendarEventsTable(this);
+  late final $HouseholdsTable households = $HouseholdsTable(this);
+  late final $PeopleTable people = $PeopleTable(this);
+  late final $PeopleMilestonesTable peopleMilestones =
+      $PeopleMilestonesTable(this);
+  late final $ContactLogTableTable contactLogTable =
+      $ContactLogTableTable(this);
   late final TasksDao tasksDao = TasksDao(this as AppDatabase);
+  late final CalendarEventsDao calendarEventsDao =
+      CalendarEventsDao(this as AppDatabase);
+  late final HouseholdsDao householdsDao = HouseholdsDao(this as AppDatabase);
+  late final PeopleDao peopleDao = PeopleDao(this as AppDatabase);
+  late final ContactLogDao contactLogDao = ContactLogDao(this as AppDatabase);
+  late final PeopleMilestonesDao peopleMilestonesDao =
+      PeopleMilestonesDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [users, userSettings, syncQueue, tasks];
-  @override
-  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
-        [
-          WritePropagation(
-            on: TableUpdateQuery.onTableName('users',
-                limitUpdateKind: UpdateKind.delete),
-            result: [
-              TableUpdate('user_settings', kind: UpdateKind.delete),
-            ],
-          ),
-          WritePropagation(
-            on: TableUpdateQuery.onTableName('users',
-                limitUpdateKind: UpdateKind.delete),
-            result: [
-              TableUpdate('tasks', kind: UpdateKind.delete),
-            ],
-          ),
-        ],
-      );
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+        users,
+        userSettings,
+        syncQueue,
+        tasks,
+        calendarEvents,
+        households,
+        people,
+        peopleMilestones,
+        contactLogTable
+      ];
 }
 
 typedef $$UsersTableCreateCompanionBuilder = UsersCompanion Function({
@@ -3702,39 +7811,6 @@ typedef $$UsersTableUpdateCompanionBuilder = UsersCompanion Function({
   Value<int> version,
   Value<int> rowid,
 });
-
-final class $$UsersTableReferences
-    extends BaseReferences<_$AppDatabase, $UsersTable, User> {
-  $$UsersTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static MultiTypedResultKey<$UserSettingsTable, List<UserSetting>>
-      _userSettingsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
-          db.userSettings,
-          aliasName: $_aliasNameGenerator(db.users.id, db.userSettings.userId));
-
-  $$UserSettingsTableProcessedTableManager get userSettingsRefs {
-    final manager = $$UserSettingsTableTableManager($_db, $_db.userSettings)
-        .filter((f) => f.userId.id.sqlEquals($_itemColumn<String>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(_userSettingsRefsTable($_db));
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: cache));
-  }
-
-  static MultiTypedResultKey<$TasksTable, List<Task>> _tasksRefsTable(
-          _$AppDatabase db) =>
-      MultiTypedResultKey.fromTable(db.tasks,
-          aliasName: $_aliasNameGenerator(db.users.id, db.tasks.userId));
-
-  $$TasksTableProcessedTableManager get tasksRefs {
-    final manager = $$TasksTableTableManager($_db, $_db.tasks)
-        .filter((f) => f.userId.id.sqlEquals($_itemColumn<String>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(_tasksRefsTable($_db));
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: cache));
-  }
-}
 
 class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
   $$UsersTableFilterComposer({
@@ -3778,48 +7854,6 @@ class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
 
   ColumnFilters<int> get version => $composableBuilder(
       column: $table.version, builder: (column) => ColumnFilters(column));
-
-  Expression<bool> userSettingsRefs(
-      Expression<bool> Function($$UserSettingsTableFilterComposer f) f) {
-    final $$UserSettingsTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.userSettings,
-        getReferencedColumn: (t) => t.userId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UserSettingsTableFilterComposer(
-              $db: $db,
-              $table: $db.userSettings,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-
-  Expression<bool> tasksRefs(
-      Expression<bool> Function($$TasksTableFilterComposer f) f) {
-    final $$TasksTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.tasks,
-        getReferencedColumn: (t) => t.userId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$TasksTableFilterComposer(
-              $db: $db,
-              $table: $db.tasks,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
 }
 
 class $$UsersTableOrderingComposer
@@ -3908,48 +7942,6 @@ class $$UsersTableAnnotationComposer
 
   GeneratedColumn<int> get version =>
       $composableBuilder(column: $table.version, builder: (column) => column);
-
-  Expression<T> userSettingsRefs<T extends Object>(
-      Expression<T> Function($$UserSettingsTableAnnotationComposer a) f) {
-    final $$UserSettingsTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.userSettings,
-        getReferencedColumn: (t) => t.userId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UserSettingsTableAnnotationComposer(
-              $db: $db,
-              $table: $db.userSettings,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-
-  Expression<T> tasksRefs<T extends Object>(
-      Expression<T> Function($$TasksTableAnnotationComposer a) f) {
-    final $$TasksTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.tasks,
-        getReferencedColumn: (t) => t.userId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$TasksTableAnnotationComposer(
-              $db: $db,
-              $table: $db.tasks,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
 }
 
 class $$UsersTableTableManager extends RootTableManager<
@@ -3961,9 +7953,9 @@ class $$UsersTableTableManager extends RootTableManager<
     $$UsersTableAnnotationComposer,
     $$UsersTableCreateCompanionBuilder,
     $$UsersTableUpdateCompanionBuilder,
-    (User, $$UsersTableReferences),
+    (User, BaseReferences<_$AppDatabase, $UsersTable, User>),
     User,
-    PrefetchHooks Function({bool userSettingsRefs, bool tasksRefs})> {
+    PrefetchHooks Function()> {
   $$UsersTableTableManager(_$AppDatabase db, $UsersTable table)
       : super(TableManagerState(
           db: db,
@@ -4031,47 +8023,9 @@ class $$UsersTableTableManager extends RootTableManager<
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) =>
-                  (e.readTable(table), $$UsersTableReferences(db, table, e)))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: (
-              {userSettingsRefs = false, tasksRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [
-                if (userSettingsRefs) db.userSettings,
-                if (tasksRefs) db.tasks
-              ],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (userSettingsRefs)
-                    await $_getPrefetchedData<User, $UsersTable, UserSetting>(
-                        currentTable: table,
-                        referencedTable:
-                            $$UsersTableReferences._userSettingsRefsTable(db),
-                        managerFromTypedResult: (p0) =>
-                            $$UsersTableReferences(db, table, p0)
-                                .userSettingsRefs,
-                        referencedItemsForCurrentItem: (item,
-                                referencedItems) =>
-                            referencedItems.where((e) => e.userId == item.id),
-                        typedResults: items),
-                  if (tasksRefs)
-                    await $_getPrefetchedData<User, $UsersTable, Task>(
-                        currentTable: table,
-                        referencedTable:
-                            $$UsersTableReferences._tasksRefsTable(db),
-                        managerFromTypedResult: (p0) =>
-                            $$UsersTableReferences(db, table, p0).tasksRefs,
-                        referencedItemsForCurrentItem: (item,
-                                referencedItems) =>
-                            referencedItems.where((e) => e.userId == item.id),
-                        typedResults: items)
-                ];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -4084,9 +8038,9 @@ typedef $$UsersTableProcessedTableManager = ProcessedTableManager<
     $$UsersTableAnnotationComposer,
     $$UsersTableCreateCompanionBuilder,
     $$UsersTableUpdateCompanionBuilder,
-    (User, $$UsersTableReferences),
+    (User, BaseReferences<_$AppDatabase, $UsersTable, User>),
     User,
-    PrefetchHooks Function({bool userSettingsRefs, bool tasksRefs})>;
+    PrefetchHooks Function()>;
 typedef $$UserSettingsTableCreateCompanionBuilder = UserSettingsCompanion
     Function({
   Value<String> id,
@@ -4140,25 +8094,6 @@ typedef $$UserSettingsTableUpdateCompanionBuilder = UserSettingsCompanion
   Value<int> rowid,
 });
 
-final class $$UserSettingsTableReferences
-    extends BaseReferences<_$AppDatabase, $UserSettingsTable, UserSetting> {
-  $$UserSettingsTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static $UsersTable _userIdTable(_$AppDatabase db) => db.users
-      .createAlias($_aliasNameGenerator(db.userSettings.userId, db.users.id));
-
-  $$UsersTableProcessedTableManager get userId {
-    final $_column = $_itemColumn<String>('user_id')!;
-
-    final manager = $$UsersTableTableManager($_db, $_db.users)
-        .filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_userIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: [item]));
-  }
-}
-
 class $$UserSettingsTableFilterComposer
     extends Composer<_$AppDatabase, $UserSettingsTable> {
   $$UserSettingsTableFilterComposer({
@@ -4170,6 +8105,9 @@ class $$UserSettingsTableFilterComposer
   });
   ColumnFilters<String> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get elderContactFrequencyDays => $composableBuilder(
       column: $table.elderContactFrequencyDays,
@@ -4245,26 +8183,6 @@ class $$UserSettingsTableFilterComposer
 
   ColumnFilters<int> get version => $composableBuilder(
       column: $table.version, builder: (column) => ColumnFilters(column));
-
-  $$UsersTableFilterComposer get userId {
-    final $$UsersTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableFilterComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$UserSettingsTableOrderingComposer
@@ -4278,6 +8196,9 @@ class $$UserSettingsTableOrderingComposer
   });
   ColumnOrderings<String> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<int> get elderContactFrequencyDays => $composableBuilder(
       column: $table.elderContactFrequencyDays,
@@ -4354,26 +8275,6 @@ class $$UserSettingsTableOrderingComposer
 
   ColumnOrderings<int> get version => $composableBuilder(
       column: $table.version, builder: (column) => ColumnOrderings(column));
-
-  $$UsersTableOrderingComposer get userId {
-    final $$UsersTableOrderingComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableOrderingComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$UserSettingsTableAnnotationComposer
@@ -4387,6 +8288,9 @@ class $$UserSettingsTableAnnotationComposer
   });
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
 
   GeneratedColumn<int> get elderContactFrequencyDays => $composableBuilder(
       column: $table.elderContactFrequencyDays, builder: (column) => column);
@@ -4447,26 +8351,6 @@ class $$UserSettingsTableAnnotationComposer
 
   GeneratedColumn<int> get version =>
       $composableBuilder(column: $table.version, builder: (column) => column);
-
-  $$UsersTableAnnotationComposer get userId {
-    final $$UsersTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableAnnotationComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$UserSettingsTableTableManager extends RootTableManager<
@@ -4478,9 +8362,12 @@ class $$UserSettingsTableTableManager extends RootTableManager<
     $$UserSettingsTableAnnotationComposer,
     $$UserSettingsTableCreateCompanionBuilder,
     $$UserSettingsTableUpdateCompanionBuilder,
-    (UserSetting, $$UserSettingsTableReferences),
+    (
+      UserSetting,
+      BaseReferences<_$AppDatabase, $UserSettingsTable, UserSetting>
+    ),
     UserSetting,
-    PrefetchHooks Function({bool userId})> {
+    PrefetchHooks Function()> {
   $$UserSettingsTableTableManager(_$AppDatabase db, $UserSettingsTable table)
       : super(TableManagerState(
           db: db,
@@ -4592,46 +8479,9 @@ class $$UserSettingsTableTableManager extends RootTableManager<
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (
-                    e.readTable(table),
-                    $$UserSettingsTableReferences(db, table, e)
-                  ))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({userId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins: <
-                  T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic>>(state) {
-                if (userId) {
-                  state = state.withJoin(
-                    currentTable: table,
-                    currentColumn: table.userId,
-                    referencedTable:
-                        $$UserSettingsTableReferences._userIdTable(db),
-                    referencedColumn:
-                        $$UserSettingsTableReferences._userIdTable(db).id,
-                  ) as T;
-                }
-
-                return state;
-              },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -4644,9 +8494,12 @@ typedef $$UserSettingsTableProcessedTableManager = ProcessedTableManager<
     $$UserSettingsTableAnnotationComposer,
     $$UserSettingsTableCreateCompanionBuilder,
     $$UserSettingsTableUpdateCompanionBuilder,
-    (UserSetting, $$UserSettingsTableReferences),
+    (
+      UserSetting,
+      BaseReferences<_$AppDatabase, $UserSettingsTable, UserSetting>
+    ),
     UserSetting,
-    PrefetchHooks Function({bool userId})>;
+    PrefetchHooks Function()>;
 typedef $$SyncQueueTableCreateCompanionBuilder = SyncQueueCompanion Function({
   Value<int> id,
   required String affectedTable,
@@ -4871,7 +8724,7 @@ typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
   Value<String> priority,
   Value<String> status,
   Value<bool> requiresFocus,
-  Value<String> energyLevel,
+  Value<String?> energyLevel,
   Value<String?> personId,
   Value<String?> calendarEventId,
   Value<String?> sermonId,
@@ -4899,7 +8752,7 @@ typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
   Value<String> priority,
   Value<String> status,
   Value<bool> requiresFocus,
-  Value<String> energyLevel,
+  Value<String?> energyLevel,
   Value<String?> personId,
   Value<String?> calendarEventId,
   Value<String?> sermonId,
@@ -4915,25 +8768,6 @@ typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
   Value<int> rowid,
 });
 
-final class $$TasksTableReferences
-    extends BaseReferences<_$AppDatabase, $TasksTable, Task> {
-  $$TasksTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static $UsersTable _userIdTable(_$AppDatabase db) =>
-      db.users.createAlias($_aliasNameGenerator(db.tasks.userId, db.users.id));
-
-  $$UsersTableProcessedTableManager get userId {
-    final $_column = $_itemColumn<String>('user_id')!;
-
-    final manager = $$UsersTableTableManager($_db, $_db.users)
-        .filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_userIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: [item]));
-  }
-}
-
 class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
   $$TasksTableFilterComposer({
     required super.$db,
@@ -4944,6 +8778,9 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
   });
   ColumnFilters<String> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get title => $composableBuilder(
       column: $table.title, builder: (column) => ColumnFilters(column));
@@ -5018,26 +8855,6 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
 
   ColumnFilters<int> get version => $composableBuilder(
       column: $table.version, builder: (column) => ColumnFilters(column));
-
-  $$UsersTableFilterComposer get userId {
-    final $$UsersTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableFilterComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$TasksTableOrderingComposer
@@ -5051,6 +8868,9 @@ class $$TasksTableOrderingComposer
   });
   ColumnOrderings<String> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get title => $composableBuilder(
       column: $table.title, builder: (column) => ColumnOrderings(column));
@@ -5127,26 +8947,6 @@ class $$TasksTableOrderingComposer
 
   ColumnOrderings<int> get version => $composableBuilder(
       column: $table.version, builder: (column) => ColumnOrderings(column));
-
-  $$UsersTableOrderingComposer get userId {
-    final $$UsersTableOrderingComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableOrderingComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$TasksTableAnnotationComposer
@@ -5160,6 +8960,9 @@ class $$TasksTableAnnotationComposer
   });
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
 
   GeneratedColumn<String> get title =>
       $composableBuilder(column: $table.title, builder: (column) => column);
@@ -5229,26 +9032,6 @@ class $$TasksTableAnnotationComposer
 
   GeneratedColumn<int> get version =>
       $composableBuilder(column: $table.version, builder: (column) => column);
-
-  $$UsersTableAnnotationComposer get userId {
-    final $$UsersTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.userId,
-        referencedTable: $db.users,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$UsersTableAnnotationComposer(
-              $db: $db,
-              $table: $db.users,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$TasksTableTableManager extends RootTableManager<
@@ -5260,9 +9043,9 @@ class $$TasksTableTableManager extends RootTableManager<
     $$TasksTableAnnotationComposer,
     $$TasksTableCreateCompanionBuilder,
     $$TasksTableUpdateCompanionBuilder,
-    (Task, $$TasksTableReferences),
+    (Task, BaseReferences<_$AppDatabase, $TasksTable, Task>),
     Task,
-    PrefetchHooks Function({bool userId})> {
+    PrefetchHooks Function()> {
   $$TasksTableTableManager(_$AppDatabase db, $TasksTable table)
       : super(TableManagerState(
           db: db,
@@ -5286,7 +9069,7 @@ class $$TasksTableTableManager extends RootTableManager<
             Value<String> priority = const Value.absent(),
             Value<String> status = const Value.absent(),
             Value<bool> requiresFocus = const Value.absent(),
-            Value<String> energyLevel = const Value.absent(),
+            Value<String?> energyLevel = const Value.absent(),
             Value<String?> personId = const Value.absent(),
             Value<String?> calendarEventId = const Value.absent(),
             Value<String?> sermonId = const Value.absent(),
@@ -5342,7 +9125,7 @@ class $$TasksTableTableManager extends RootTableManager<
             Value<String> priority = const Value.absent(),
             Value<String> status = const Value.absent(),
             Value<bool> requiresFocus = const Value.absent(),
-            Value<String> energyLevel = const Value.absent(),
+            Value<String?> energyLevel = const Value.absent(),
             Value<String?> personId = const Value.absent(),
             Value<String?> calendarEventId = const Value.absent(),
             Value<String?> sermonId = const Value.absent(),
@@ -5386,43 +9169,9 @@ class $$TasksTableTableManager extends RootTableManager<
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) =>
-                  (e.readTable(table), $$TasksTableReferences(db, table, e)))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({userId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins: <
-                  T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic>>(state) {
-                if (userId) {
-                  state = state.withJoin(
-                    currentTable: table,
-                    currentColumn: table.userId,
-                    referencedTable: $$TasksTableReferences._userIdTable(db),
-                    referencedColumn:
-                        $$TasksTableReferences._userIdTable(db).id,
-                  ) as T;
-                }
-
-                return state;
-              },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -5435,9 +9184,1619 @@ typedef $$TasksTableProcessedTableManager = ProcessedTableManager<
     $$TasksTableAnnotationComposer,
     $$TasksTableCreateCompanionBuilder,
     $$TasksTableUpdateCompanionBuilder,
-    (Task, $$TasksTableReferences),
+    (Task, BaseReferences<_$AppDatabase, $TasksTable, Task>),
     Task,
-    PrefetchHooks Function({bool userId})>;
+    PrefetchHooks Function()>;
+typedef $$CalendarEventsTableCreateCompanionBuilder = CalendarEventsCompanion
+    Function({
+  Value<String> id,
+  required String userId,
+  required String title,
+  Value<String?> description,
+  Value<String?> location,
+  required int startDatetime,
+  required int endDatetime,
+  required String eventType,
+  Value<bool> isRecurring,
+  Value<String?> recurrencePattern,
+  Value<int?> travelTimeMinutes,
+  Value<String> energyDrain,
+  Value<bool> isMoveable,
+  Value<bool> requiresPreparation,
+  Value<int?> preparationBufferHours,
+  Value<String?> personId,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+typedef $$CalendarEventsTableUpdateCompanionBuilder = CalendarEventsCompanion
+    Function({
+  Value<String> id,
+  Value<String> userId,
+  Value<String> title,
+  Value<String?> description,
+  Value<String?> location,
+  Value<int> startDatetime,
+  Value<int> endDatetime,
+  Value<String> eventType,
+  Value<bool> isRecurring,
+  Value<String?> recurrencePattern,
+  Value<int?> travelTimeMinutes,
+  Value<String> energyDrain,
+  Value<bool> isMoveable,
+  Value<bool> requiresPreparation,
+  Value<int?> preparationBufferHours,
+  Value<String?> personId,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+
+class $$CalendarEventsTableFilterComposer
+    extends Composer<_$AppDatabase, $CalendarEventsTable> {
+  $$CalendarEventsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get location => $composableBuilder(
+      column: $table.location, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get startDatetime => $composableBuilder(
+      column: $table.startDatetime, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get endDatetime => $composableBuilder(
+      column: $table.endDatetime, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get eventType => $composableBuilder(
+      column: $table.eventType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isRecurring => $composableBuilder(
+      column: $table.isRecurring, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get recurrencePattern => $composableBuilder(
+      column: $table.recurrencePattern,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get travelTimeMinutes => $composableBuilder(
+      column: $table.travelTimeMinutes,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get energyDrain => $composableBuilder(
+      column: $table.energyDrain, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isMoveable => $composableBuilder(
+      column: $table.isMoveable, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get requiresPreparation => $composableBuilder(
+      column: $table.requiresPreparation,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get preparationBufferHours => $composableBuilder(
+      column: $table.preparationBufferHours,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+}
+
+class $$CalendarEventsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CalendarEventsTable> {
+  $$CalendarEventsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get location => $composableBuilder(
+      column: $table.location, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get startDatetime => $composableBuilder(
+      column: $table.startDatetime,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get endDatetime => $composableBuilder(
+      column: $table.endDatetime, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get eventType => $composableBuilder(
+      column: $table.eventType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isRecurring => $composableBuilder(
+      column: $table.isRecurring, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get recurrencePattern => $composableBuilder(
+      column: $table.recurrencePattern,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get travelTimeMinutes => $composableBuilder(
+      column: $table.travelTimeMinutes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get energyDrain => $composableBuilder(
+      column: $table.energyDrain, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isMoveable => $composableBuilder(
+      column: $table.isMoveable, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get requiresPreparation => $composableBuilder(
+      column: $table.requiresPreparation,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get preparationBufferHours => $composableBuilder(
+      column: $table.preparationBufferHours,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+}
+
+class $$CalendarEventsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CalendarEventsTable> {
+  $$CalendarEventsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => column);
+
+  GeneratedColumn<String> get location =>
+      $composableBuilder(column: $table.location, builder: (column) => column);
+
+  GeneratedColumn<int> get startDatetime => $composableBuilder(
+      column: $table.startDatetime, builder: (column) => column);
+
+  GeneratedColumn<int> get endDatetime => $composableBuilder(
+      column: $table.endDatetime, builder: (column) => column);
+
+  GeneratedColumn<String> get eventType =>
+      $composableBuilder(column: $table.eventType, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRecurring => $composableBuilder(
+      column: $table.isRecurring, builder: (column) => column);
+
+  GeneratedColumn<String> get recurrencePattern => $composableBuilder(
+      column: $table.recurrencePattern, builder: (column) => column);
+
+  GeneratedColumn<int> get travelTimeMinutes => $composableBuilder(
+      column: $table.travelTimeMinutes, builder: (column) => column);
+
+  GeneratedColumn<String> get energyDrain => $composableBuilder(
+      column: $table.energyDrain, builder: (column) => column);
+
+  GeneratedColumn<bool> get isMoveable => $composableBuilder(
+      column: $table.isMoveable, builder: (column) => column);
+
+  GeneratedColumn<bool> get requiresPreparation => $composableBuilder(
+      column: $table.requiresPreparation, builder: (column) => column);
+
+  GeneratedColumn<int> get preparationBufferHours => $composableBuilder(
+      column: $table.preparationBufferHours, builder: (column) => column);
+
+  GeneratedColumn<String> get personId =>
+      $composableBuilder(column: $table.personId, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+}
+
+class $$CalendarEventsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $CalendarEventsTable,
+    CalendarEvent,
+    $$CalendarEventsTableFilterComposer,
+    $$CalendarEventsTableOrderingComposer,
+    $$CalendarEventsTableAnnotationComposer,
+    $$CalendarEventsTableCreateCompanionBuilder,
+    $$CalendarEventsTableUpdateCompanionBuilder,
+    (
+      CalendarEvent,
+      BaseReferences<_$AppDatabase, $CalendarEventsTable, CalendarEvent>
+    ),
+    CalendarEvent,
+    PrefetchHooks Function()> {
+  $$CalendarEventsTableTableManager(
+      _$AppDatabase db, $CalendarEventsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CalendarEventsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CalendarEventsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CalendarEventsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> userId = const Value.absent(),
+            Value<String> title = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<String?> location = const Value.absent(),
+            Value<int> startDatetime = const Value.absent(),
+            Value<int> endDatetime = const Value.absent(),
+            Value<String> eventType = const Value.absent(),
+            Value<bool> isRecurring = const Value.absent(),
+            Value<String?> recurrencePattern = const Value.absent(),
+            Value<int?> travelTimeMinutes = const Value.absent(),
+            Value<String> energyDrain = const Value.absent(),
+            Value<bool> isMoveable = const Value.absent(),
+            Value<bool> requiresPreparation = const Value.absent(),
+            Value<int?> preparationBufferHours = const Value.absent(),
+            Value<String?> personId = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              CalendarEventsCompanion(
+            id: id,
+            userId: userId,
+            title: title,
+            description: description,
+            location: location,
+            startDatetime: startDatetime,
+            endDatetime: endDatetime,
+            eventType: eventType,
+            isRecurring: isRecurring,
+            recurrencePattern: recurrencePattern,
+            travelTimeMinutes: travelTimeMinutes,
+            energyDrain: energyDrain,
+            isMoveable: isMoveable,
+            requiresPreparation: requiresPreparation,
+            preparationBufferHours: preparationBufferHours,
+            personId: personId,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            required String userId,
+            required String title,
+            Value<String?> description = const Value.absent(),
+            Value<String?> location = const Value.absent(),
+            required int startDatetime,
+            required int endDatetime,
+            required String eventType,
+            Value<bool> isRecurring = const Value.absent(),
+            Value<String?> recurrencePattern = const Value.absent(),
+            Value<int?> travelTimeMinutes = const Value.absent(),
+            Value<String> energyDrain = const Value.absent(),
+            Value<bool> isMoveable = const Value.absent(),
+            Value<bool> requiresPreparation = const Value.absent(),
+            Value<int?> preparationBufferHours = const Value.absent(),
+            Value<String?> personId = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              CalendarEventsCompanion.insert(
+            id: id,
+            userId: userId,
+            title: title,
+            description: description,
+            location: location,
+            startDatetime: startDatetime,
+            endDatetime: endDatetime,
+            eventType: eventType,
+            isRecurring: isRecurring,
+            recurrencePattern: recurrencePattern,
+            travelTimeMinutes: travelTimeMinutes,
+            energyDrain: energyDrain,
+            isMoveable: isMoveable,
+            requiresPreparation: requiresPreparation,
+            preparationBufferHours: preparationBufferHours,
+            personId: personId,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$CalendarEventsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $CalendarEventsTable,
+    CalendarEvent,
+    $$CalendarEventsTableFilterComposer,
+    $$CalendarEventsTableOrderingComposer,
+    $$CalendarEventsTableAnnotationComposer,
+    $$CalendarEventsTableCreateCompanionBuilder,
+    $$CalendarEventsTableUpdateCompanionBuilder,
+    (
+      CalendarEvent,
+      BaseReferences<_$AppDatabase, $CalendarEventsTable, CalendarEvent>
+    ),
+    CalendarEvent,
+    PrefetchHooks Function()>;
+typedef $$HouseholdsTableCreateCompanionBuilder = HouseholdsCompanion Function({
+  Value<String> id,
+  required String userId,
+  required String name,
+  Value<String?> address,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+typedef $$HouseholdsTableUpdateCompanionBuilder = HouseholdsCompanion Function({
+  Value<String> id,
+  Value<String> userId,
+  Value<String> name,
+  Value<String?> address,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+
+class $$HouseholdsTableFilterComposer
+    extends Composer<_$AppDatabase, $HouseholdsTable> {
+  $$HouseholdsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get address => $composableBuilder(
+      column: $table.address, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+}
+
+class $$HouseholdsTableOrderingComposer
+    extends Composer<_$AppDatabase, $HouseholdsTable> {
+  $$HouseholdsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get address => $composableBuilder(
+      column: $table.address, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+}
+
+class $$HouseholdsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $HouseholdsTable> {
+  $$HouseholdsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get address =>
+      $composableBuilder(column: $table.address, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+}
+
+class $$HouseholdsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $HouseholdsTable,
+    Household,
+    $$HouseholdsTableFilterComposer,
+    $$HouseholdsTableOrderingComposer,
+    $$HouseholdsTableAnnotationComposer,
+    $$HouseholdsTableCreateCompanionBuilder,
+    $$HouseholdsTableUpdateCompanionBuilder,
+    (Household, BaseReferences<_$AppDatabase, $HouseholdsTable, Household>),
+    Household,
+    PrefetchHooks Function()> {
+  $$HouseholdsTableTableManager(_$AppDatabase db, $HouseholdsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$HouseholdsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$HouseholdsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$HouseholdsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> userId = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<String?> address = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              HouseholdsCompanion(
+            id: id,
+            userId: userId,
+            name: name,
+            address: address,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            required String userId,
+            required String name,
+            Value<String?> address = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              HouseholdsCompanion.insert(
+            id: id,
+            userId: userId,
+            name: name,
+            address: address,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$HouseholdsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $HouseholdsTable,
+    Household,
+    $$HouseholdsTableFilterComposer,
+    $$HouseholdsTableOrderingComposer,
+    $$HouseholdsTableAnnotationComposer,
+    $$HouseholdsTableCreateCompanionBuilder,
+    $$HouseholdsTableUpdateCompanionBuilder,
+    (Household, BaseReferences<_$AppDatabase, $HouseholdsTable, Household>),
+    Household,
+    PrefetchHooks Function()>;
+typedef $$PeopleTableCreateCompanionBuilder = PeopleCompanion Function({
+  Value<String> id,
+  required String userId,
+  required String name,
+  Value<String?> email,
+  Value<String?> phone,
+  required String category,
+  Value<String?> householdId,
+  Value<DateTime?> lastContactDate,
+  Value<int?> contactFrequencyOverrideDays,
+  Value<String?> notes,
+  Value<String> tags,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+typedef $$PeopleTableUpdateCompanionBuilder = PeopleCompanion Function({
+  Value<String> id,
+  Value<String> userId,
+  Value<String> name,
+  Value<String?> email,
+  Value<String?> phone,
+  Value<String> category,
+  Value<String?> householdId,
+  Value<DateTime?> lastContactDate,
+  Value<int?> contactFrequencyOverrideDays,
+  Value<String?> notes,
+  Value<String> tags,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+
+class $$PeopleTableFilterComposer
+    extends Composer<_$AppDatabase, $PeopleTable> {
+  $$PeopleTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get email => $composableBuilder(
+      column: $table.email, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get phone => $composableBuilder(
+      column: $table.phone, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get category => $composableBuilder(
+      column: $table.category, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get householdId => $composableBuilder(
+      column: $table.householdId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get lastContactDate => $composableBuilder(
+      column: $table.lastContactDate,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get contactFrequencyOverrideDays => $composableBuilder(
+      column: $table.contactFrequencyOverrideDays,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+}
+
+class $$PeopleTableOrderingComposer
+    extends Composer<_$AppDatabase, $PeopleTable> {
+  $$PeopleTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get email => $composableBuilder(
+      column: $table.email, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get phone => $composableBuilder(
+      column: $table.phone, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get category => $composableBuilder(
+      column: $table.category, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get householdId => $composableBuilder(
+      column: $table.householdId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get lastContactDate => $composableBuilder(
+      column: $table.lastContactDate,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get contactFrequencyOverrideDays => $composableBuilder(
+      column: $table.contactFrequencyOverrideDays,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+}
+
+class $$PeopleTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PeopleTable> {
+  $$PeopleTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get email =>
+      $composableBuilder(column: $table.email, builder: (column) => column);
+
+  GeneratedColumn<String> get phone =>
+      $composableBuilder(column: $table.phone, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get householdId => $composableBuilder(
+      column: $table.householdId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastContactDate => $composableBuilder(
+      column: $table.lastContactDate, builder: (column) => column);
+
+  GeneratedColumn<int> get contactFrequencyOverrideDays => $composableBuilder(
+      column: $table.contactFrequencyOverrideDays, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<String> get tags =>
+      $composableBuilder(column: $table.tags, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+}
+
+class $$PeopleTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $PeopleTable,
+    Person,
+    $$PeopleTableFilterComposer,
+    $$PeopleTableOrderingComposer,
+    $$PeopleTableAnnotationComposer,
+    $$PeopleTableCreateCompanionBuilder,
+    $$PeopleTableUpdateCompanionBuilder,
+    (Person, BaseReferences<_$AppDatabase, $PeopleTable, Person>),
+    Person,
+    PrefetchHooks Function()> {
+  $$PeopleTableTableManager(_$AppDatabase db, $PeopleTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PeopleTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PeopleTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PeopleTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> userId = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<String?> email = const Value.absent(),
+            Value<String?> phone = const Value.absent(),
+            Value<String> category = const Value.absent(),
+            Value<String?> householdId = const Value.absent(),
+            Value<DateTime?> lastContactDate = const Value.absent(),
+            Value<int?> contactFrequencyOverrideDays = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<String> tags = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              PeopleCompanion(
+            id: id,
+            userId: userId,
+            name: name,
+            email: email,
+            phone: phone,
+            category: category,
+            householdId: householdId,
+            lastContactDate: lastContactDate,
+            contactFrequencyOverrideDays: contactFrequencyOverrideDays,
+            notes: notes,
+            tags: tags,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            required String userId,
+            required String name,
+            Value<String?> email = const Value.absent(),
+            Value<String?> phone = const Value.absent(),
+            required String category,
+            Value<String?> householdId = const Value.absent(),
+            Value<DateTime?> lastContactDate = const Value.absent(),
+            Value<int?> contactFrequencyOverrideDays = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<String> tags = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              PeopleCompanion.insert(
+            id: id,
+            userId: userId,
+            name: name,
+            email: email,
+            phone: phone,
+            category: category,
+            householdId: householdId,
+            lastContactDate: lastContactDate,
+            contactFrequencyOverrideDays: contactFrequencyOverrideDays,
+            notes: notes,
+            tags: tags,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$PeopleTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $PeopleTable,
+    Person,
+    $$PeopleTableFilterComposer,
+    $$PeopleTableOrderingComposer,
+    $$PeopleTableAnnotationComposer,
+    $$PeopleTableCreateCompanionBuilder,
+    $$PeopleTableUpdateCompanionBuilder,
+    (Person, BaseReferences<_$AppDatabase, $PeopleTable, Person>),
+    Person,
+    PrefetchHooks Function()>;
+typedef $$PeopleMilestonesTableCreateCompanionBuilder
+    = PeopleMilestonesCompanion Function({
+  Value<String> id,
+  required String personId,
+  required String milestoneType,
+  required DateTime date,
+  Value<String?> description,
+  Value<int> notifyDaysBefore,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+typedef $$PeopleMilestonesTableUpdateCompanionBuilder
+    = PeopleMilestonesCompanion Function({
+  Value<String> id,
+  Value<String> personId,
+  Value<String> milestoneType,
+  Value<DateTime> date,
+  Value<String?> description,
+  Value<int> notifyDaysBefore,
+  Value<int> createdAt,
+  Value<int> updatedAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+
+class $$PeopleMilestonesTableFilterComposer
+    extends Composer<_$AppDatabase, $PeopleMilestonesTable> {
+  $$PeopleMilestonesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get milestoneType => $composableBuilder(
+      column: $table.milestoneType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get date => $composableBuilder(
+      column: $table.date, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get notifyDaysBefore => $composableBuilder(
+      column: $table.notifyDaysBefore,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+}
+
+class $$PeopleMilestonesTableOrderingComposer
+    extends Composer<_$AppDatabase, $PeopleMilestonesTable> {
+  $$PeopleMilestonesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get milestoneType => $composableBuilder(
+      column: $table.milestoneType,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get date => $composableBuilder(
+      column: $table.date, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get notifyDaysBefore => $composableBuilder(
+      column: $table.notifyDaysBefore,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+}
+
+class $$PeopleMilestonesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PeopleMilestonesTable> {
+  $$PeopleMilestonesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get personId =>
+      $composableBuilder(column: $table.personId, builder: (column) => column);
+
+  GeneratedColumn<String> get milestoneType => $composableBuilder(
+      column: $table.milestoneType, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => column);
+
+  GeneratedColumn<int> get notifyDaysBefore => $composableBuilder(
+      column: $table.notifyDaysBefore, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+}
+
+class $$PeopleMilestonesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $PeopleMilestonesTable,
+    PeopleMilestone,
+    $$PeopleMilestonesTableFilterComposer,
+    $$PeopleMilestonesTableOrderingComposer,
+    $$PeopleMilestonesTableAnnotationComposer,
+    $$PeopleMilestonesTableCreateCompanionBuilder,
+    $$PeopleMilestonesTableUpdateCompanionBuilder,
+    (
+      PeopleMilestone,
+      BaseReferences<_$AppDatabase, $PeopleMilestonesTable, PeopleMilestone>
+    ),
+    PeopleMilestone,
+    PrefetchHooks Function()> {
+  $$PeopleMilestonesTableTableManager(
+      _$AppDatabase db, $PeopleMilestonesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PeopleMilestonesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PeopleMilestonesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PeopleMilestonesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> personId = const Value.absent(),
+            Value<String> milestoneType = const Value.absent(),
+            Value<DateTime> date = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<int> notifyDaysBefore = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              PeopleMilestonesCompanion(
+            id: id,
+            personId: personId,
+            milestoneType: milestoneType,
+            date: date,
+            description: description,
+            notifyDaysBefore: notifyDaysBefore,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            required String personId,
+            required String milestoneType,
+            required DateTime date,
+            Value<String?> description = const Value.absent(),
+            Value<int> notifyDaysBefore = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<int> updatedAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              PeopleMilestonesCompanion.insert(
+            id: id,
+            personId: personId,
+            milestoneType: milestoneType,
+            date: date,
+            description: description,
+            notifyDaysBefore: notifyDaysBefore,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$PeopleMilestonesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $PeopleMilestonesTable,
+    PeopleMilestone,
+    $$PeopleMilestonesTableFilterComposer,
+    $$PeopleMilestonesTableOrderingComposer,
+    $$PeopleMilestonesTableAnnotationComposer,
+    $$PeopleMilestonesTableCreateCompanionBuilder,
+    $$PeopleMilestonesTableUpdateCompanionBuilder,
+    (
+      PeopleMilestone,
+      BaseReferences<_$AppDatabase, $PeopleMilestonesTable, PeopleMilestone>
+    ),
+    PeopleMilestone,
+    PrefetchHooks Function()>;
+typedef $$ContactLogTableTableCreateCompanionBuilder = ContactLogTableCompanion
+    Function({
+  Value<String> id,
+  required String userId,
+  required String personId,
+  required DateTime contactDate,
+  required String contactType,
+  Value<int?> durationMinutes,
+  Value<String?> notes,
+  Value<int> createdAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+typedef $$ContactLogTableTableUpdateCompanionBuilder = ContactLogTableCompanion
+    Function({
+  Value<String> id,
+  Value<String> userId,
+  Value<String> personId,
+  Value<DateTime> contactDate,
+  Value<String> contactType,
+  Value<int?> durationMinutes,
+  Value<String?> notes,
+  Value<int> createdAt,
+  Value<String> syncStatus,
+  Value<int> localUpdatedAt,
+  Value<int?> serverUpdatedAt,
+  Value<int> version,
+  Value<int> rowid,
+});
+
+class $$ContactLogTableTableFilterComposer
+    extends Composer<_$AppDatabase, $ContactLogTableTable> {
+  $$ContactLogTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get contactDate => $composableBuilder(
+      column: $table.contactDate, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get contactType => $composableBuilder(
+      column: $table.contactType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get durationMinutes => $composableBuilder(
+      column: $table.durationMinutes,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+}
+
+class $$ContactLogTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $ContactLogTableTable> {
+  $$ContactLogTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get personId => $composableBuilder(
+      column: $table.personId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get contactDate => $composableBuilder(
+      column: $table.contactDate, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get contactType => $composableBuilder(
+      column: $table.contactType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get durationMinutes => $composableBuilder(
+      column: $table.durationMinutes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ContactLogTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ContactLogTableTable> {
+  $$ContactLogTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get personId =>
+      $composableBuilder(column: $table.personId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get contactDate => $composableBuilder(
+      column: $table.contactDate, builder: (column) => column);
+
+  GeneratedColumn<String> get contactType => $composableBuilder(
+      column: $table.contactType, builder: (column) => column);
+
+  GeneratedColumn<int> get durationMinutes => $composableBuilder(
+      column: $table.durationMinutes, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<int> get localUpdatedAt => $composableBuilder(
+      column: $table.localUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get serverUpdatedAt => $composableBuilder(
+      column: $table.serverUpdatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+}
+
+class $$ContactLogTableTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ContactLogTableTable,
+    ContactLog,
+    $$ContactLogTableTableFilterComposer,
+    $$ContactLogTableTableOrderingComposer,
+    $$ContactLogTableTableAnnotationComposer,
+    $$ContactLogTableTableCreateCompanionBuilder,
+    $$ContactLogTableTableUpdateCompanionBuilder,
+    (
+      ContactLog,
+      BaseReferences<_$AppDatabase, $ContactLogTableTable, ContactLog>
+    ),
+    ContactLog,
+    PrefetchHooks Function()> {
+  $$ContactLogTableTableTableManager(
+      _$AppDatabase db, $ContactLogTableTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ContactLogTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ContactLogTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ContactLogTableTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> userId = const Value.absent(),
+            Value<String> personId = const Value.absent(),
+            Value<DateTime> contactDate = const Value.absent(),
+            Value<String> contactType = const Value.absent(),
+            Value<int?> durationMinutes = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ContactLogTableCompanion(
+            id: id,
+            userId: userId,
+            personId: personId,
+            contactDate: contactDate,
+            contactType: contactType,
+            durationMinutes: durationMinutes,
+            notes: notes,
+            createdAt: createdAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            required String userId,
+            required String personId,
+            required DateTime contactDate,
+            required String contactType,
+            Value<int?> durationMinutes = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<int> createdAt = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<int> localUpdatedAt = const Value.absent(),
+            Value<int?> serverUpdatedAt = const Value.absent(),
+            Value<int> version = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ContactLogTableCompanion.insert(
+            id: id,
+            userId: userId,
+            personId: personId,
+            contactDate: contactDate,
+            contactType: contactType,
+            durationMinutes: durationMinutes,
+            notes: notes,
+            createdAt: createdAt,
+            syncStatus: syncStatus,
+            localUpdatedAt: localUpdatedAt,
+            serverUpdatedAt: serverUpdatedAt,
+            version: version,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ContactLogTableTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $ContactLogTableTable,
+    ContactLog,
+    $$ContactLogTableTableFilterComposer,
+    $$ContactLogTableTableOrderingComposer,
+    $$ContactLogTableTableAnnotationComposer,
+    $$ContactLogTableTableCreateCompanionBuilder,
+    $$ContactLogTableTableUpdateCompanionBuilder,
+    (
+      ContactLog,
+      BaseReferences<_$AppDatabase, $ContactLogTableTable, ContactLog>
+    ),
+    ContactLog,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -5450,4 +10809,14 @@ class $AppDatabaseManager {
       $$SyncQueueTableTableManager(_db, _db.syncQueue);
   $$TasksTableTableManager get tasks =>
       $$TasksTableTableManager(_db, _db.tasks);
+  $$CalendarEventsTableTableManager get calendarEvents =>
+      $$CalendarEventsTableTableManager(_db, _db.calendarEvents);
+  $$HouseholdsTableTableManager get households =>
+      $$HouseholdsTableTableManager(_db, _db.households);
+  $$PeopleTableTableManager get people =>
+      $$PeopleTableTableManager(_db, _db.people);
+  $$PeopleMilestonesTableTableManager get peopleMilestones =>
+      $$PeopleMilestonesTableTableManager(_db, _db.peopleMilestones);
+  $$ContactLogTableTableTableManager get contactLogTable =>
+      $$ContactLogTableTableTableManager(_db, _db.contactLogTable);
 }

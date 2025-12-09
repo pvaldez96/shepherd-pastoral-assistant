@@ -60,6 +60,7 @@ dependencies:
   intl: ^0.18.0
   json_annotation: ^4.8.0
   flutter_dotenv: ^5.1.0
+  drift_flutter: ^0.2.7
 
 dev_dependencies:
   flutter_test:

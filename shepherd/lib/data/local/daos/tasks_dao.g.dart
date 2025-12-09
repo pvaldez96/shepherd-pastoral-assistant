@@ -4,6 +4,5 @@ part of 'tasks_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$TasksDaoMixin on DatabaseAccessor<AppDatabase> {
-  $UsersTable get users => attachedDatabase.users;
   $TasksTable get tasks => attachedDatabase.tasks;
 }

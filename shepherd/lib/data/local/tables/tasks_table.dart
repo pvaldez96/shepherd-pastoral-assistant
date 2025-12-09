@@ -2,7 +2,6 @@
 
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
-import 'users_table.dart';
 
 /// Tasks table - mirrors Supabase tasks table with offline-first sync metadata
 ///
@@ -31,7 +30,7 @@ class Tasks extends Table {
   /// Primary key - UUID generated on client
   /// Uses TEXT in SQLite to store UUID strings
   /// Must match Supabase UUID format for seamless sync
-  TextColumn get id => text().clientDefault(() => const Uuid().v4())();
+  TextColumn get id => text().clientDefault(() => Uuid().v4())();
 
   // ============================================================================
   // FOREIGN KEY - USER RELATIONSHIP
@@ -39,8 +38,9 @@ class Tasks extends Table {
 
   /// Foreign key to users table - establishes multi-tenant isolation
   /// Every task belongs to exactly one user (the pastor who created it)
-  /// ON DELETE CASCADE: When user is deleted, their tasks are automatically deleted
-  TextColumn get userId => text().references(Users, #id, onDelete: KeyAction.cascade)();
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  TextColumn get userId => text()();
 
   // ============================================================================
   // CORE TASK INFORMATION
@@ -153,15 +153,15 @@ class Tasks extends Table {
   /// Energy level required to complete task effectively
   /// Valid values (enforced in app layer):
   /// - 'low': Can be done when tired (filing, simple emails)
-  /// - 'medium': Normal energy level (default)
+  /// - 'medium': Normal energy level
   /// - 'high': Requires peak mental energy (sermon writing, strategic planning)
   ///
   /// Used for smart scheduling:
   /// - Schedule high-energy tasks during peak focus hours
   /// - Save low-energy tasks for end of day
   /// - Match task energy to pastor's energy patterns
-  /// Default: 'medium'
-  TextColumn get energyLevel => text().withDefault(const Constant('medium'))();
+  /// Nullable - not all tasks specify energy level
+  TextColumn get energyLevel => text().nullable()();
 
   // ============================================================================
   // RELATIONSHIPS TO OTHER ENTITIES

@@ -2,7 +2,6 @@
 
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
-import 'users_table.dart';
 
 /// User Settings table - stores user preferences and configuration
 ///
@@ -19,11 +18,12 @@ import 'users_table.dart';
 @DataClassName('UserSetting')
 class UserSettings extends Table {
   /// Primary key - UUID generated on client
-  TextColumn get id => text().clientDefault(() => const Uuid().v4())();
+  TextColumn get id => text().clientDefault(() => Uuid().v4())();
 
   /// Foreign key to users table - establishes 1:1 relationship
-  /// ON DELETE CASCADE: When user is deleted, their settings are automatically deleted
-  TextColumn get userId => text().references(Users, #id, onDelete: KeyAction.cascade)();
+  /// Note: Foreign keys are enforced at the application layer for web compatibility
+  /// IndexedDB doesn't support CASCADE constraints, so cleanup is handled manually
+  TextColumn get userId => text()();
 
   // ============================================================================
   // CONTACT FREQUENCY DEFAULTS (days between contacts)

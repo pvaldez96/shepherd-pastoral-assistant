@@ -92,7 +92,7 @@ class TaskRepositoryImpl implements TaskRepository {
   /// Helper: Convert domain TaskEntity to Drift TasksCompanion (for inserts)
   TasksCompanion _toCompanion(TaskEntity task) {
     return TasksCompanion.insert(
-      id: task.id,
+      id: Value(task.id),
       userId: task.userId,
       title: task.title,
       description: Value(task.description),
@@ -122,12 +122,28 @@ class TaskRepositoryImpl implements TaskRepository {
 
   @override
   Future<List<TaskEntity>> getAllTasks() async {
-    // TODO: Get userId from auth service
-    // For now, using a placeholder
-    const String userId = 'current-user-id';
+    try {
+      print('🔍 [TaskRepository] Starting getAllTasks...');
 
-    final tasks = await _tasksDao.getAllTasks(userId);
-    return tasks.map(_toDomain).toList();
+      // TODO: Get userId from auth service
+      // For now, using a placeholder
+      const String userId = 'current-user-id';
+      print('🔍 [TaskRepository] Using userId: $userId');
+
+      print('🔍 [TaskRepository] Calling tasksDao.getAllTasks...');
+      final tasks = await _tasksDao.getAllTasks(userId);
+      print('✅ [TaskRepository] Got ${tasks.length} tasks from DAO');
+
+      print('🔍 [TaskRepository] Converting to domain entities...');
+      final domainTasks = tasks.map(_toDomain).toList();
+      print('✅ [TaskRepository] Converted to ${domainTasks.length} domain tasks');
+
+      return domainTasks;
+    } catch (e, stackTrace) {
+      print('❌ [TaskRepository] ERROR in getAllTasks: $e');
+      print('❌ [TaskRepository] Stack trace: $stackTrace');
+      rethrow;
+    }
   }
 
   @override
@@ -329,10 +345,8 @@ class TaskRepositoryImpl implements TaskRepository {
 
   @override
   Future<List<TaskEntity>> getPendingTasks() async {
-    // TODO: Get userId from auth service
-    const String userId = 'current-user-id';
-
-    final tasks = await _tasksDao.getPendingTasks(userId);
+    // Get all tasks with pending sync status
+    final tasks = await _tasksDao.getPendingTasks();
     return tasks.map(_toDomain).toList();
   }
 

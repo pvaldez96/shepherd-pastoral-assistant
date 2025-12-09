@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_notifier.dart';
-import 'widgets/quick_capture_bottom_sheet.dart';
+import '../shared/providers/action_button_provider.dart';
+import '../shared/widgets/expandable_action_button.dart';
+import '../calendar/event_form_screen.dart';
+import '../tasks/task_form_screen.dart';
+import '../people/person_form_screen.dart';
+import '../quick_capture/quick_capture_sheet.dart';
 
 /// Main scaffold with persistent navigation components
 ///
@@ -33,6 +38,12 @@ class MainScaffold extends ConsumerStatefulWidget {
 }
 
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
+  /// Whether the action menu is currently expanded
+  bool _isActionMenuOpen = false;
+
+  /// Track the last route to detect route changes
+  String? _lastRoute;
+
   /// Get the current tab index based on the current route
   int _getCurrentTabIndex(String location) {
     // Extract view parameter from dashboard route
@@ -57,7 +68,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   }
 
   /// Handle bottom navigation tap
-  void _onBottomNavTap(int index) {
+  void _onBottomNavTap(int index, String location) {
     switch (index) {
       case 0:
         context.go('/dashboard?view=daily');
@@ -69,8 +80,17 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
         context.go('/dashboard?view=monthly');
         break;
       case 3:
-        // Show Quick Capture bottom sheet
-        _showQuickCaptureSheet();
+        // Toggle action menu or show quick capture based on current page
+        final currentPage = getPageFromRoute(location);
+        if (currentPage == AppPage.dashboard || currentPage == AppPage.settings) {
+          // Dashboard and Settings: Normal quick capture
+          _showQuickCaptureSheet();
+        } else {
+          // Other pages: Toggle expandable menu
+          setState(() {
+            _isActionMenuOpen = !_isActionMenuOpen;
+          });
+        }
         break;
     }
   }
@@ -80,10 +100,8 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => const QuickCaptureBottomSheet(),
+      backgroundColor: Colors.transparent,
+      builder: (context) => const QuickCaptureSheet(),
     );
   }
 
@@ -110,38 +128,66 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     return location.startsWith(route);
   }
 
+  /// Get the label for the action button based on current page
+  String _getActionButtonLabel(String location) {
+    final currentPage = getPageFromRoute(location);
+    // Dashboard and Settings show "Quick Capture"
+    if (currentPage == AppPage.dashboard || currentPage == AppPage.settings) {
+      return 'Quick Capture';
+    }
+    // All other pages show "Action"
+    return 'Action';
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.toString();
     final currentTabIndex = _getCurrentTabIndex(location);
     final authState = ref.watch(authNotifierProvider);
+    final currentPage = getPageFromRoute(location);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+    // Close action menu when route actually changes (not on every build)
+    if (_isActionMenuOpen && _lastRoute != null && _lastRoute != location) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _isActionMenuOpen = false;
+          });
+        }
+      });
+    }
 
-      // AppBar with title and menu button (right side)
-      appBar: AppBar(
-        title: Text(_getPageTitle(location)),
-        backgroundColor: const Color(0xFF2563EB),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false, // Hide default leading
-        actions: [
-          // Menu button (right side) - opens drawer
-          Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu),
-              tooltip: 'Menu',
-              onPressed: () {
-                Scaffold.of(context).openEndDrawer();
-              },
-            ),
+    // Update last route
+    _lastRoute = location;
+
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFFF9FAFB),
+
+          // AppBar with title and menu button (right side)
+          appBar: AppBar(
+            title: Text(_getPageTitle(location)),
+            backgroundColor: const Color(0xFF2563EB),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            automaticallyImplyLeading: false, // Hide default leading
+            actions: [
+              // Menu button (right side) - opens drawer
+              Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: 'Menu',
+                  onPressed: () {
+                    Scaffold.of(context).openEndDrawer();
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
 
-      // Right-side drawer (endDrawer)
-      endDrawer: Drawer(
+          // Right-side drawer (endDrawer)
+          endDrawer: Drawer(
         child: SafeArea(
           child: Column(
             children: [
@@ -309,38 +355,242 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
         ),
       ),
 
-      // Body - child widget from router
-      body: widget.child,
+          // Body - child widget from router
+          body: widget.child,
 
-      // Bottom navigation bar
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: currentTabIndex,
-        onDestinationSelected: _onBottomNavTap,
-        backgroundColor: Colors.white,
-        elevation: 8,
-        height: 64,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.today_outlined),
-            selectedIcon: Icon(Icons.today),
-            label: 'Daily',
+          // Bottom navigation bar
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: currentTabIndex,
+            onDestinationSelected: (index) => _onBottomNavTap(index, location),
+            backgroundColor: Colors.white,
+            elevation: 8,
+            height: 64,
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.today_outlined),
+                selectedIcon: Icon(Icons.today),
+                label: 'Daily',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.view_week_outlined),
+                selectedIcon: Icon(Icons.view_week),
+                label: 'Weekly',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.calendar_month_outlined),
+                selectedIcon: Icon(Icons.calendar_month),
+                label: 'Monthly',
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.add_circle_outline),
+                selectedIcon: const Icon(Icons.add_circle),
+                label: _getActionButtonLabel(location),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.view_week_outlined),
-            selectedIcon: Icon(Icons.view_week),
-            label: 'Weekly',
+        ),
+
+        // Expandable action menu overlay (shown on component pages when [+] is tapped)
+        if (_isActionMenuOpen) _buildActionMenuOverlay(context, currentPage),
+      ],
+    );
+  }
+
+  /// Build the expandable action menu overlay
+  ///
+  /// Shows a semi-transparent backdrop with action options positioned above the bottom navigation bar.
+  /// Options are stacked vertically and expand upward from the [+] button position.
+  Widget _buildActionMenuOverlay(BuildContext context, AppPage page) {
+    final options = _getActionOptions(page);
+
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _isActionMenuOpen = false;
+          });
+        },
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.5),
+          child: Stack(
+            children: [
+              // Options positioned above bottom navigation
+              Positioned(
+                bottom: 80, // Above bottom nav (64px height + 16px padding)
+                right: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: options.map((option) => _buildActionOption(option)).toList(),
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: 'Monthly',
+        ),
+      ),
+    );
+  }
+
+  /// Get action options for the current page
+  List<ActionButtonOption> _getActionOptions(AppPage page) {
+    switch (page) {
+      case AppPage.calendar:
+        return createActionButtonOptions(
+          page: page,
+          onAddEvent: _handleAddEvent,
+          onGoToToday: _handleGoToToday,
+          onQuickCapture: _handleQuickCaptureAndClose,
+        );
+
+      case AppPage.tasks:
+        return createActionButtonOptions(
+          page: page,
+          onAddTask: _handleAddTask,
+          onQuickCapture: _handleQuickCaptureAndClose,
+        );
+
+      case AppPage.people:
+        return createActionButtonOptions(
+          page: page,
+          onAddPerson: _handleAddPerson,
+          onQuickCapture: _handleQuickCaptureAndClose,
+        );
+
+      case AppPage.sermons:
+        return createActionButtonOptions(
+          page: page,
+          onAddSermon: _handleAddSermon,
+          onQuickCapture: _handleQuickCaptureAndClose,
+        );
+
+      case AppPage.notes:
+        return createActionButtonOptions(
+          page: page,
+          onAddNote: _handleAddNote,
+          onQuickCapture: _handleQuickCaptureAndClose,
+        );
+
+      case AppPage.dashboard:
+      case AppPage.settings:
+        return [];
+    }
+  }
+
+  /// Build a single action option button
+  Widget _buildActionOption(ActionButtonOption option) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            // Close menu first
+            setState(() {
+              _isActionMenuOpen = false;
+            });
+            // Execute action after brief delay
+            Future.delayed(const Duration(milliseconds: 100), option.onTap);
+          },
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  option.icon,
+                  color: option.color ?? const Color(0xFF2563EB),
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  option.label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.add_circle_outline),
-            selectedIcon: Icon(Icons.add_circle),
-            label: 'Quick Capture',
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  /// Handle quick capture and close menu
+  void _handleQuickCaptureAndClose() {
+    _showQuickCaptureSheet();
+  }
+
+  /// Handle add event action (Calendar page)
+  void _handleAddEvent() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const EventFormScreen(),
+      ),
+    );
+  }
+
+  /// Handle go to today action (Calendar page)
+  void _handleGoToToday() {
+    // TODO: Implement scroll to today functionality
+    // This would require accessing the CalendarScreen state
+    // For now, navigate to calendar page
+    context.go('/calendar');
+  }
+
+  /// Handle add task action (Tasks page)
+  void _handleAddTask() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const TaskFormScreen(),
+      ),
+    );
+  }
+
+  /// Handle add person action (People page)
+  void _handleAddPerson() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PersonFormScreen(),
+      ),
+    );
+  }
+
+  /// Handle add sermon action (Sermons page)
+  void _handleAddSermon() {
+    // TODO: Implement navigation to sermon form when Sermons module is ready
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Add Sermon feature coming soon!'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Handle add note action (Notes page)
+  void _handleAddNote() {
+    // TODO: Implement navigation to note form when Notes module is ready
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Add Note feature coming soon!'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
