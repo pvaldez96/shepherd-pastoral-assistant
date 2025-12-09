@@ -104,6 +104,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - "Oops!" title and error message
   - Retry button
   - Clean error handling UX
+- Created `lib/presentation/tasks/task_form_screen.dart` - Task creation/editing form (950 lines)
+  - **Required Fields**:
+    - Title field with auto-focus and 200 char max validation
+    - Category dropdown (sermon_prep, pastoral_care, admin, personal, worship_planning)
+    - Priority selector (Low, Medium, High, Urgent) with color coding
+  - **Optional Fields**:
+    - Description field (multiline, 3-8 lines)
+    - Due date picker with clear button
+    - Due time picker (conditional on date selection)
+    - Estimated duration with quick chips (15min, 30min, 1hr, 2hrs) + custom dialog
+  - **Form Features**:
+    - Complete validation (title and category required)
+    - Inline error messages
+    - Save button prevented when validation fails
+    - Success SnackBar on save
+    - Auto-return to tasks list after save
+  - **Form Organization**:
+    - Grouped into logical sections (Basic Info, Scheduling, Time Estimation, Categorization)
+    - Material Design 3 styling
+    - 16px spacing between fields, 24px between sections
+    - 8px border radius on inputs
+  - **State Management**:
+    - StatefulWidget with FormKey validation
+    - Proper TextEditingController disposal
+    - State variables for date, time, duration, category, priority
+  - **Platform Integration**:
+    - Native date picker (showDatePicker)
+    - Native time picker (showTimePicker)
+    - Responsive keyboard handling
+  - **Accessibility**:
+    - Semantic labels on all fields
+    - Minimum 44x44 touch targets
+    - Screen reader support
+  - **Navigation Integration**:
+    - Opens from tasks list FAB
+    - Opens from empty state "Add Task" button
+    - Returns to tasks list on successful save
+  - **Documentation**:
+    - TODO markers for database integration (line ~873)
+    - TODO markers for edit mode implementation (line ~126)
+    - Inline comments explaining all logic
+- Updated `lib/presentation/tasks/tasks_screen.dart` - Task list FAB integration
+  - FAB now navigates to TaskFormScreen instead of showing placeholder message
+  - Empty state "Add Task" button also navigates to form
+  - Removed "Quick Capture coming soon" SnackBar placeholder
+- Created `TASK_FORM_IMPLEMENTATION.md` - Complete implementation guide
+  - Field specifications and validation rules
+  - Code examples for all form components
+  - Integration instructions
+  - Testing checklist (functional, UI/UX, accessibility, mobile, performance, edge cases)
+  - Known limitations documented
+- Created `TASK_FORM_VISUAL_REFERENCE.md` - Visual design reference
+  - Form layout wireframe
+  - Field grouping visualization
+  - Color scheme for priority indicators
+  - Spacing and sizing specifications
 
 ### Added - Documentation & Workflow
 
